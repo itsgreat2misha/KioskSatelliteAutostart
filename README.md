@@ -43,32 +43,73 @@ from ZIP** accepts the ZIP built by `python3 tools/build.py`.
   arguments (one string, split quote-aware, for example
   `put system user_rotation 1`), a backend, a run mode and a timeout
   in seconds (1–30).
-- **Run state (managed by Autostart)** — do not edit. Autostart stores
-  which commands already ran on this boot here. Clearing it makes
-  Once per boot commands run again on the next Kiosk start.
+- **Run one command** — pick a command from this list, then press
+  **Run selected command**. This is the per-command run: it runs
+  only that command, ignoring Once per boot tracking, and does not
+  mark it as run for this boot.
+- **Run state and Session process id (managed by Autostart)** —
+  hidden settings, not editable fields. The SDK has no read-only or
+  hidden setting type, so these are hidden with a condition that
+  never matches, and are managed by the plugin itself. Run state
+  stores which commands already ran on this boot; clearing it via
+  **Clear run state** makes Once per boot commands run again on the
+  next Kiosk start. Session process id records the Kiosk process
+  id of the last start, so a plugin session restart in the same
+  process does not run commands again (see below).
 
-Two buttons sit on the settings page:
+Buttons on the settings page:
 
 - **Run commands now** — runs all enabled commands now, ignoring
   Once per boot tracking. A manual run does not mark commands as run
   for this boot, so testing a command does not consume its once-per-boot
   slot.
+- **Run selected command** — runs only the command picked in
+  **Run one command**.
+- **Clear run state** — clears Once per boot tracking, so those
+  commands run again on the next Kiosk start.
 - **Check backends** — reports whether root (`su`, uid 0) and Shizuku
   are available on this kiosk.
 
-The declared **Run autostart commands now** action does the same as
-the Run button and can be used from gestures, the kiosk drawer or
-Home Assistant.
+The declared actions are for assigning to gestures, the kiosk drawer
+or Home Assistant — pressing them in the Actions list does not run
+anything there, it only offers them as assignable actions:
+
+- **Run all autostart commands (gesture/drawer action)** — the same
+  as Run commands now, when triggered from a gesture, drawer
+  shortcut or Home Assistant button.
+- **Run selected autostart command (gesture/drawer action)** — the
+  same as Run selected command, when triggered that way. A list of
+  commands cannot be turned into one declared action per command:
+  the manifest's actions are static, while the command list is
+  user-edited, so the picker plus Run selected button is the
+  per-command run the SDK allows.
 
 ## How it works
 
 A command is one executable plus arguments, so the same command works
-through either backend. The root backend joins them into a
-shell-quoted `su -c` string. The Shizuku backend passes them verbatim
-to Kiosk Satellite's `executeShizuku`, which takes an absolute
-executable and separate arguments and does no shell joining. When
-shell syntax is genuinely needed, use `/system/bin/sh` with `-c` as
-the executable.
+through either backend. The root backend runs them through `su`,
+trying `su 0 <argv...>` first and `su -c <shell string>` second,
+and remembers which form reported uid 0. The first form is the one
+the Tuya F5-3 panel needs: `su -c` fails there with exit 1, which
+is why v1.0's Check backends wrongly reported root as unavailable
+on that panel even though `su` works. The Shizuku backend passes
+them verbatim to Kiosk Satellite's `executeShizuku`, which takes an
+absolute executable and separate arguments and does no shell
+joining. When shell syntax is genuinely needed, use
+`/system/bin/sh` with `-c` as the executable.
+
+Automatic commands run on a Kiosk app start, not on a plugin
+session restart. Kiosk Satellite calls `start()` for both explicit
+enable and app startup, and saving settings does not call it at
+all — so a run seen right after adding commands was the enable
+start, not the save. Autostart distinguishes the two with the
+Kiosk process id: a first start only arms the plugin, a start in
+the same process as the last start is a session restart (enable,
+master-switch on, plugin update) and does not run, and a start in
+a new process is an app start and does run. One sequence stays
+indistinguishable: disabling, rebooting, then enabling again
+looks exactly like an app start with a pre-enabled plugin, so
+that sequence still runs on enable.
 
 Callbacks return immediately; all commands run sequentially on a
 background worker thread, so a long command cannot stall Kiosk and a

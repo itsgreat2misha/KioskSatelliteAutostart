@@ -40,6 +40,17 @@ public final class AutostartTest {
         check(RunState.parse("garbage").bootId() == null, "malformed state ignored");
         check(RunState.parse("v1|old-boot|abcdef12").bootId().equals("old-boot"), "old boot id parsed");
 
+        // RootRunner su forms: su 0 passes argv verbatim, su -c shell-quotes it.
+        List<String> su0 = RootRunner.su0Command(Arrays.asList("/system/bin/id"));
+        check(su0.equals(Arrays.asList("su", "0", "/system/bin/id")), "su 0 command: " + su0);
+        List<String> suShell = RootRunner.suShellCommand(Arrays.asList("/system/bin/am", "start", "a b"));
+        check(suShell.size() == 3 && suShell.get(0).equals("su") && suShell.get(1).equals("-c"), "su -c command: " + suShell);
+        check(ArgParser.split(suShell.get(2)).equals(Arrays.asList("/system/bin/am", "start", "a b")), "su -c round-trip");
+
+        // Pid: the host JVM's own pid, via /proc/self.
+        Integer pid = Pid.current();
+        check(pid != null && pid.intValue() > 0, "pid current: " + pid);
+
         // CommandSpec parsing, including number-as-double (how KS JSON numbers arrive).
         Map<String, Object> row = new HashMap<String, Object>();
         row.put("label", "Rotation");

@@ -26,10 +26,11 @@ import me.jxl.kiosk.plugins.PluginHost;
  * never overlap and a long command cannot stall Kiosk.
  * <li>One command is one executable plus arguments, stored that way so
  * the same command can run through either backend. The root backend
- * joins them into a shell-quoted {@code su -c} string; the Shizuku
- * backend passes them verbatim to {@code host.executeShizuku}, which
- * takes an absolute executable and separate arguments and does no
- * shell joining. Use {@code /system/bin/sh} with {@code -c} as the
+ * runs them through su, trying {@code su 0 <argv...>} first and
+ * {@code su -c <shell string>} second (see {@link RootRunner}); the
+ * Shizuku backend passes them verbatim to {@code host.executeShizuku},
+ * which takes an absolute executable and separate arguments and does
+ * no shell joining. Use {@code /system/bin/sh} with {@code -c} as the
  * executable when shell syntax is genuinely needed.
  * <li>Shizuku rules are honoured: at most one pending request, at
  * least 250 ms between requests (300 ms here), timeouts clamped to
@@ -66,16 +67,20 @@ public final class AutostartPlugin implements KioskPlugin {
         final String defaultRunMode;
         final int startupDelaySeconds;
         final List<CommandSpec> commands;
+        final String singleCommand;
+        final String sessionPid;
 
-        Config(String defaultBackend, String defaultRunMode, int startupDelaySeconds, List<CommandSpec> commands) {
+        Config(String defaultBackend, String defaultRunMode, int startupDelaySeconds, List<CommandSpec> commands, String singleCommand, String sessionPid) {
             this.defaultBackend = defaultBackend;
             this.defaultRunMode = defaultRunMode;
             this.startupDelaySeconds = startupDelaySeconds;
             this.commands = commands;
+            this.singleCommand = singleCommand;
+            this.sessionPid = sessionPid;
         }
 
         static Config empty() {
-            return new Config("Auto", "Once per boot", 0, Collections.<CommandSpec>emptyList());
+            return new Config("Auto", "Once per boot", 0, Collections.<CommandSpec>emptyList(), "", "");
         }
 
         static Config parse(Map<String, Object> settings) {
@@ -96,7 +101,9 @@ public final class AutostartPlugin implements KioskPlugin {
                     }
                 }
             }
-            return new Config(backend, runMode, delay, commands);
+            String single = CommandSpec.string(settings, "singleCommand", "");
+            String pid = CommandSpec.string(settings, "sessionPid", "");
+            return new Config(backend, runMode, delay, commands, single, pid);
         }
     }
 
@@ -113,8 +120,42 @@ public final class AutostartPlugin implements KioskPlugin {
             }
         });
         publishSensors("Autostart ready.", "No run yet.");
-        statusSafe("Autostart ready.", false);
-        scheduleAutomatic();
+        // Automatic runs must happen on a Kiosk app start, not on a
+        // plugin session restart inside the same Kiosk process. KS
+        // calls start() for both: explicit enable, master-switch on,
+        // and a plugin update all restart the session in the same
+        // process, and saving settings does not call start() at all.
+        // So the run you saw after adding commands was the enable
+        // start, not the settings save. Distinguish the two with the
+        // Kiosk process id, persisted in the hidden sessionPid
+        // setting: a first start (never started before) only arms
+        // the plugin, a start in the same process as the last start
+        // is a session restart and does not run, and a start in a
+        // new process is an app start and does run. If the pid
+        // cannot be determined, fall back to the old behaviour and
+        // run, so a boot is never silently skipped for that reason.
+        // Known limit, stated honestly: disabling, rebooting, and
+        // then enabling again looks exactly like an app start with
+        // a pre-enabled plugin (new process, stored pid differs),
+        // so that one sequence still runs on enable.
+        Integer pid = Pid.current();
+        String pidStr = pid == null ? "" : String.valueOf(pid.intValue());
+        boolean firstStart = config.sessionPid == null || config.sessionPid.length() == 0;
+        boolean sameProcess = !firstStart && pidStr.length() > 0 && pidStr.equals(config.sessionPid);
+        boolean runAutomatic = !firstStart && !sameProcess;
+        if (pidStr.length() > 0 && !pidStr.equals(config.sessionPid)) {
+            try {
+                Map<String, Object> values = new HashMap<String, Object>();
+                values.put("sessionPid", pidStr);
+                host.updateSettings(values);
+            } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
+        }
+        if (runAutomatic) {
+            statusSafe("Autostart ready.", false);
+            scheduleAutomatic();
+        } else {
+            statusSafe("Autostart armed. Commands will run on the next Kiosk start, not on enable or a plugin restart.", false);
+        }
     }
 
     @Override
@@ -122,11 +163,13 @@ public final class AutostartPlugin implements KioskPlugin {
         config = Config.parse(settings);
         String raw = CommandSpec.string(settings, "runState", "");
         runStateRaw = raw;
+        publishChoices();
     }
 
     @Override
     public void execute(String command, Map<String, Object> arguments) {
         if ("runNow".equals(command)) scheduleManual(null);
+        else if ("runSelected".equals(command)) scheduleSingle(null);
     }
 
     @Override
@@ -143,6 +186,10 @@ public final class AutostartPlugin implements KioskPlugin {
             String run = payload.get("run") == null ? null : String.valueOf(payload.get("run"));
             if ("runNow".equals(id)) {
                 scheduleManual(run);
+            } else if ("runSelected".equals(id)) {
+                scheduleSingle(run);
+            } else if ("clearRunState".equals(id)) {
+                scheduleClearRunState(run);
             } else if ("probeBackends".equals(id)) {
                 probeBackends(run);
             }
@@ -180,6 +227,125 @@ public final class AutostartPlugin implements KioskPlugin {
         executor.submit(new Runnable() {
             public void run() { runPass(true, setupRun); }
         });
+    }
+
+    private void scheduleSingle(final String setupRun) {
+        final ExecutorService executor = worker;
+        if (executor == null || stopped) return;
+        executor.submit(new Runnable() {
+            public void run() { runSinglePass(setupRun); }
+        });
+    }
+
+    private void scheduleClearRunState(final String setupRun) {
+        final ExecutorService executor = worker;
+        if (executor == null || stopped) return;
+        executor.submit(new Runnable() {
+            public void run() { clearRunStatePass(setupRun); }
+        });
+    }
+
+    /** Publish the command list as choices for the Run one command setting. */
+    private void publishChoices() {
+        PluginHost snapshotHost = safeHost();
+        if (snapshotHost == null) return;
+        try {
+            List<CommandSpec> commands = config.commands;
+            String[] ids = new String[commands.size()];
+            String[] labels = new String[commands.size()];
+            for (int i = 0; i < commands.size(); i++) {
+                ids[i] = commands.get(i).hash();
+                labels[i] = commands.get(i).label;
+            }
+            snapshotHost.setSettingChoices("singleCommand", ids, labels);
+        } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
+    }
+
+    private void clearRunStatePass(String setupRun) {
+        if (setupRun != null) {
+            currentSetupRun = setupRun;
+            setupCancelled = false;
+        }
+        try {
+            runStateRaw = "";
+            PluginHost snapshotHost = safeHost();
+            if (snapshotHost != null) {
+                Map<String, Object> values = new HashMap<String, Object>();
+                values.put("runState", "");
+                snapshotHost.updateSettings(values);
+            }
+            String message = "Run state cleared. Once per boot commands will run again on the next Kiosk start.";
+            statusSafe(message, false);
+            logSafe(message);
+            reportSetup(setupRun, "success", message);
+        } catch (RuntimeException e) {
+            logSafe("Could not clear run state: " + e.getMessage());
+            reportSetup(setupRun, "error", "Could not clear run state: " + e.getMessage());
+        } catch (LinkageError e) {
+            reportSetup(setupRun, "error", "This Kiosk Satellite version cannot clear run state.");
+        } finally {
+            if (setupRun != null) currentSetupRun = null;
+        }
+    }
+
+    /** Run only the command picked in the Run one command setting. Manual: ignores run mode, never marks run state. */
+    private void runSinglePass(String setupRun) {
+        Config snapshot = config;
+        if (setupRun != null) {
+            currentSetupRun = setupRun;
+            setupCancelled = false;
+        }
+        try {
+            CommandSpec found = null;
+            for (int i = 0; i < snapshot.commands.size(); i++) {
+                if (snapshot.commands.get(i).hash().equals(snapshot.singleCommand)) { found = snapshot.commands.get(i); break; }
+            }
+            if (found == null) {
+                String message = snapshot.singleCommand.length() == 0
+                        ? "No command selected. Pick one in Run one command first."
+                        : "Selected command no longer exists. Pick one in Run one command again.";
+                statusSafe(message, true);
+                logSafe(message);
+                reportSetup(setupRun, "error", message);
+                return;
+            }
+            if (!found.enabled) {
+                String message = found.label + ": disabled, not run.";
+                statusSafe(message, true);
+                logSafe(message);
+                reportSetup(setupRun, "error", message);
+                return;
+            }
+            if (stopped || setupCancelled) return;
+            BackendChoice choice = chooseBackend(found, snapshot, null);
+            if (choice.backend == null) {
+                String message = found.label + ": failed (" + choice.failure + ")";
+                statusSafe(message, true);
+                logSafe(message);
+                reportSetup(setupRun, "error", message);
+                return;
+            }
+            Result result;
+            if ("Root".equals(choice.backend)) {
+                result = RootRunner.run(found.argv(), found.timeoutSeconds);
+            } else {
+                result = runShizuku(found);
+            }
+            if (stopped) return;
+            String line = result.succeeded()
+                    ? found.label + ": ok"
+                    : found.label + ": failed (" + result.summary() + ")";
+            publishSensors("Last run: " + line, line);
+            statusSafe(line, !result.succeeded());
+            logSafe(line + (result.succeeded() ? "" : outputSuffix(result)));
+            reportSetup(setupRun, result.succeeded() ? "success" : "error", line);
+        } catch (RuntimeException e) {
+            logSafe("Run selected failed: " + e.getMessage());
+            statusSafe("Run selected failed: " + e.getMessage(), true);
+            reportSetup(setupRun, "error", "Run selected failed: " + e.getMessage());
+        } finally {
+            if (setupRun != null) currentSetupRun = null;
+        }
     }
 
     private void runPass(boolean manual, String setupRun) {
@@ -410,7 +576,7 @@ public final class AutostartPlugin implements KioskPlugin {
             public void run() {
                 boolean root = RootRunner.probe();
                 String shizuku = shizukuFailureReason();
-                String message = "Root (su): " + (root ? "available (uid 0)" : "unavailable")
+                String message = "Root (su): " + (root ? "available (uid 0 via " + RootRunner.formLabel() + ")" : "unavailable (neither su 0 nor su -c reported uid 0)")
                         + ". Shizuku: " + (shizuku == null ? "ready" : shizuku) + ".";
                 statusSafe(message, false);
                 logSafe(message);
