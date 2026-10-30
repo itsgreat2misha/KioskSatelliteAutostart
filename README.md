@@ -43,10 +43,19 @@ from ZIP** accepts the ZIP built by `python3 tools/build.py`.
   arguments (one string, split quote-aware, for example
   `put system user_rotation 1`), a backend, a run mode and a timeout
   in seconds (1–30).
-- **Run one command** — pick a command from this list, then press
-  **Run selected command**. This is the per-command run: it runs
-  only that command, ignoring Once per boot tracking, and does not
-  mark it as run for this boot.
+- **Enabled** (per row) — turn a command off without deleting it.
+  A disabled command stays in the list, is skipped by automatic
+  runs and by Run commands now, and a per-row Run toggle on it does
+  not run it. Turn it back on to use it again.
+- **Run now** (per row) — a one-shot toggle, not a button: the SDK
+  has no button field for list rows, so a list row cannot carry its
+  own Run button next to the reorder handle (rows show only a title
+  and a subtitle there). Open the row, turn Run now on and save:
+  the plugin runs only that command, ignoring Once per boot
+  tracking, without marking it as run for this boot, then resets
+  the toggle to off. A disabled command does not run. The toggle
+  only takes effect on a settings save while the plugin is running;
+  on a Kiosk start the automatic rules apply instead.
 - **Run state and Session process id (managed by Autostart)** —
   hidden settings, not editable fields. The SDK has no read-only or
   hidden setting type, so these are hidden with a condition that
@@ -63,26 +72,21 @@ Buttons on the settings page:
   Once per boot tracking. A manual run does not mark commands as run
   for this boot, so testing a command does not consume its once-per-boot
   slot.
-- **Run selected command** — runs only the command picked in
-  **Run one command**.
 - **Clear run state** — clears Once per boot tracking, so those
   commands run again on the next Kiosk start.
 - **Check backends** — reports whether root (`su`, uid 0) and Shizuku
   are available on this kiosk.
 
-The declared actions are for assigning to gestures, the kiosk drawer
-or Home Assistant — pressing them in the Actions list does not run
-anything there, it only offers them as assignable actions:
+The one declared action is for assigning to a gesture, the kiosk
+drawer or Home Assistant — pressing it in the Actions list does not
+run anything there, it only offers it as an assignable action:
 
-- **Run all autostart commands (gesture/drawer action)** — the same
-  as Run commands now, when triggered from a gesture, drawer
-  shortcut or Home Assistant button.
-- **Run selected autostart command (gesture/drawer action)** — the
-  same as Run selected command, when triggered that way. A list of
-  commands cannot be turned into one declared action per command:
-  the manifest's actions are static, while the command list is
-  user-edited, so the picker plus Run selected button is the
-  per-command run the SDK allows.
+- **Run all autostart commands** — the same as Run commands now,
+  when triggered from a gesture, drawer shortcut or Home Assistant
+  button. There is no per-command declared action: the manifest's
+  actions are static, while the command list is user-edited, so a
+  list of commands cannot be turned into one action per command.
+  Per-command runs use the Run now toggle in the row editor instead.
 
 ## How it works
 

@@ -17,13 +17,6 @@
             "title": "Check backends"
         },
         {
-            "description": "Run only the command picked in Run one command, ignoring Once per boot tracking. A manual run does not mark it as run for this boot.",
-            "group": "Commands",
-            "id": "runSelected",
-            "label": "Run selected",
-            "title": "Run selected command"
-        },
-        {
             "description": "Clears Once per boot tracking, so those commands run again on the next Kiosk start.",
             "group": "Advanced",
             "id": "clearRunState",
@@ -38,11 +31,7 @@
     "commands": [
         {
             "id": "runNow",
-            "title": "Run all autostart commands (gesture/drawer action)"
-        },
-        {
-            "id": "runSelected",
-            "title": "Run selected autostart command (gesture/drawer action)"
+            "title": "Run all autostart commands"
         }
     ],
     "description": "Run commands you choose every time Kiosk Satellite starts, through root (su) or Shizuku. Commands can run on every start or only once per boot, so a Kiosk restart does not repeat them.",
@@ -126,6 +115,12 @@
                     "type": "boolean"
                 },
                 {
+                    "default": false,
+                    "key": "run",
+                    "title": "Run now",
+                    "type": "boolean"
+                },
+                {
                     "key": "executable",
                     "required": true,
                     "title": "Executable",
@@ -183,15 +178,6 @@
             "type": "list"
         },
         {
-            "choices": "plugin",
-            "default": "",
-            "description": "Pick a command, then press Run selected command. Manual runs ignore Once per boot and do not mark the command as run.",
-            "group": "Commands",
-            "key": "singleCommand",
-            "title": "Run one command",
-            "type": "string"
-        },
-        {
             "default": "",
             "description": "Managed by Autostart. It is hidden because editing it by hand is not needed; use Clear run state instead.",
             "group": "Advanced",
@@ -216,5 +202,5 @@
             }
         }
     ],
-    "version": "1.1.0"
+    "version": "1.2.0"
 }

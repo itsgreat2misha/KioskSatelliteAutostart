@@ -4,8 +4,10 @@ package autostart;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -59,6 +61,7 @@ public final class AutostartPlugin implements KioskPlugin {
     private volatile boolean needsShizukuRetry;
     private volatile String currentSetupRun;
     private volatile boolean setupCancelled;
+    private final Set<String> runOnceSeen = Collections.synchronizedSet(new HashSet<String>());
 
     private ExecutorService worker;
 
@@ -67,20 +70,18 @@ public final class AutostartPlugin implements KioskPlugin {
         final String defaultRunMode;
         final int startupDelaySeconds;
         final List<CommandSpec> commands;
-        final String singleCommand;
         final String sessionPid;
 
-        Config(String defaultBackend, String defaultRunMode, int startupDelaySeconds, List<CommandSpec> commands, String singleCommand, String sessionPid) {
+        Config(String defaultBackend, String defaultRunMode, int startupDelaySeconds, List<CommandSpec> commands, String sessionPid) {
             this.defaultBackend = defaultBackend;
             this.defaultRunMode = defaultRunMode;
             this.startupDelaySeconds = startupDelaySeconds;
             this.commands = commands;
-            this.singleCommand = singleCommand;
             this.sessionPid = sessionPid;
         }
 
         static Config empty() {
-            return new Config("Auto", "Once per boot", 0, Collections.<CommandSpec>emptyList(), "", "");
+            return new Config("Auto", "Once per boot", 0, Collections.<CommandSpec>emptyList(), "");
         }
 
         static Config parse(Map<String, Object> settings) {
@@ -101,9 +102,8 @@ public final class AutostartPlugin implements KioskPlugin {
                     }
                 }
             }
-            String single = CommandSpec.string(settings, "singleCommand", "");
             String pid = CommandSpec.string(settings, "sessionPid", "");
-            return new Config(backend, runMode, delay, commands, single, pid);
+            return new Config(backend, runMode, delay, commands, pid);
         }
     }
 
@@ -163,13 +163,16 @@ public final class AutostartPlugin implements KioskPlugin {
         config = Config.parse(settings);
         String raw = CommandSpec.string(settings, "runState", "");
         runStateRaw = raw;
-        publishChoices();
+        // Only when the worker already exists (a settings save while
+        // the plugin is running). During start(), configure runs
+        // before the worker is created, and the automatic pass, not
+        // a one-shot toggle, owns that start.
+        if (worker != null) scheduleRunOnce();
     }
 
     @Override
     public void execute(String command, Map<String, Object> arguments) {
         if ("runNow".equals(command)) scheduleManual(null);
-        else if ("runSelected".equals(command)) scheduleSingle(null);
     }
 
     @Override
@@ -186,8 +189,6 @@ public final class AutostartPlugin implements KioskPlugin {
             String run = payload.get("run") == null ? null : String.valueOf(payload.get("run"));
             if ("runNow".equals(id)) {
                 scheduleManual(run);
-            } else if ("runSelected".equals(id)) {
-                scheduleSingle(run);
             } else if ("clearRunState".equals(id)) {
                 scheduleClearRunState(run);
             } else if ("probeBackends".equals(id)) {
@@ -229,12 +230,68 @@ public final class AutostartPlugin implements KioskPlugin {
         });
     }
 
-    private void scheduleSingle(final String setupRun) {
+    private void scheduleSingleByHash(final String hash, final String setupRun) {
         final ExecutorService executor = worker;
         if (executor == null || stopped) return;
         executor.submit(new Runnable() {
-            public void run() { runSinglePass(setupRun); }
+            public void run() { runSinglePass(hash, setupRun); }
         });
+    }
+
+    /**
+     * One-shot per-row runs. A command row's Run toggle is a request,
+     * not a state: when configure sees it set, schedule that command
+     * once (manual semantics: ignores run mode, never marks run
+     * state), then reset every Run toggle to false. The reset is
+     * retried on the next configure if it fails, but a hash already
+     * scheduled in this session is never scheduled again, so a
+     * failed reset cannot cause a second run.
+     */
+    private void scheduleRunOnce() {
+        ExecutorService executor = worker;
+        if (executor == null || stopped) return;
+        List<CommandSpec> toRun = new ArrayList<CommandSpec>();
+        boolean anyRunFlag = false;
+        for (int i = 0; i < config.commands.size(); i++) {
+            CommandSpec spec = config.commands.get(i);
+            if (!spec.run) continue;
+            anyRunFlag = true;
+            if (runOnceSeen.contains(spec.hash())) continue;
+            runOnceSeen.add(spec.hash());
+            toRun.add(spec);
+        }
+        if (anyRunFlag) resetRunToggles();
+        for (int i = 0; i < toRun.size(); i++) {
+            scheduleSingleByHash(toRun.get(i).hash(), null);
+        }
+    }
+
+    private void resetRunToggles() {
+        PluginHost snapshotHost = safeHost();
+        if (snapshotHost == null) return;
+        try {
+            List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
+            for (int i = 0; i < config.commands.size(); i++) {
+                CommandSpec spec = config.commands.get(i);
+                Map<String, Object> row = new HashMap<String, Object>();
+                row.put("label", spec.label);
+                row.put("enabled", Boolean.valueOf(spec.enabled));
+                row.put("executable", spec.executable);
+                row.put("args", spec.args);
+                row.put("backend", spec.backend);
+                row.put("runMode", spec.runMode);
+                row.put("timeoutSeconds", Integer.valueOf(spec.timeoutSeconds));
+                row.put("run", Boolean.FALSE);
+                rows.add(row);
+            }
+            Map<String, Object> values = new HashMap<String, Object>();
+            values.put("commands", rows);
+            snapshotHost.updateSettings(values);
+        } catch (RuntimeException e) {
+            logSafe("Could not reset Run toggles: " + e.getMessage());
+        } catch (LinkageError e) {
+            logSafe("Could not reset Run toggles: this Kiosk Satellite version cannot update list settings.");
+        }
     }
 
     private void scheduleClearRunState(final String setupRun) {
@@ -243,22 +300,6 @@ public final class AutostartPlugin implements KioskPlugin {
         executor.submit(new Runnable() {
             public void run() { clearRunStatePass(setupRun); }
         });
-    }
-
-    /** Publish the command list as choices for the Run one command setting. */
-    private void publishChoices() {
-        PluginHost snapshotHost = safeHost();
-        if (snapshotHost == null) return;
-        try {
-            List<CommandSpec> commands = config.commands;
-            String[] ids = new String[commands.size()];
-            String[] labels = new String[commands.size()];
-            for (int i = 0; i < commands.size(); i++) {
-                ids[i] = commands.get(i).hash();
-                labels[i] = commands.get(i).label;
-            }
-            snapshotHost.setSettingChoices("singleCommand", ids, labels);
-        } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
     }
 
     private void clearRunStatePass(String setupRun) {
@@ -288,8 +329,8 @@ public final class AutostartPlugin implements KioskPlugin {
         }
     }
 
-    /** Run only the command picked in the Run one command setting. Manual: ignores run mode, never marks run state. */
-    private void runSinglePass(String setupRun) {
+    /** Run one command by hash. Manual: ignores run mode, never marks run state. */
+    private void runSinglePass(String hash, String setupRun) {
         Config snapshot = config;
         if (setupRun != null) {
             currentSetupRun = setupRun;
@@ -298,12 +339,10 @@ public final class AutostartPlugin implements KioskPlugin {
         try {
             CommandSpec found = null;
             for (int i = 0; i < snapshot.commands.size(); i++) {
-                if (snapshot.commands.get(i).hash().equals(snapshot.singleCommand)) { found = snapshot.commands.get(i); break; }
+                if (snapshot.commands.get(i).hash().equals(hash)) { found = snapshot.commands.get(i); break; }
             }
             if (found == null) {
-                String message = snapshot.singleCommand.length() == 0
-                        ? "No command selected. Pick one in Run one command first."
-                        : "Selected command no longer exists. Pick one in Run one command again.";
+                String message = "That command no longer exists.";
                 statusSafe(message, true);
                 logSafe(message);
                 reportSetup(setupRun, "error", message);
@@ -340,9 +379,9 @@ public final class AutostartPlugin implements KioskPlugin {
             logSafe(line + (result.succeeded() ? "" : outputSuffix(result)));
             reportSetup(setupRun, result.succeeded() ? "success" : "error", line);
         } catch (RuntimeException e) {
-            logSafe("Run selected failed: " + e.getMessage());
-            statusSafe("Run selected failed: " + e.getMessage(), true);
-            reportSetup(setupRun, "error", "Run selected failed: " + e.getMessage());
+            logSafe("Run command failed: " + e.getMessage());
+            statusSafe("Run command failed: " + e.getMessage(), true);
+            reportSetup(setupRun, "error", "Run command failed: " + e.getMessage());
         } finally {
             if (setupRun != null) currentSetupRun = null;
         }

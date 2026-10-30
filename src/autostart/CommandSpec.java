@@ -14,9 +14,15 @@ public final class CommandSpec {
     public final String backend; // Default, Auto, Root or Shizuku
     public final String runMode; // Default, Once per boot or Every start
     public final int timeoutSeconds;
+    public final boolean run; // One-shot per-row run toggle; see AutostartPlugin. Not part of argv or hash.
 
     public CommandSpec(String label, boolean enabled, String executable, String args,
                        String backend, String runMode, int timeoutSeconds) {
+        this(label, enabled, executable, args, backend, runMode, timeoutSeconds, false);
+    }
+
+    public CommandSpec(String label, boolean enabled, String executable, String args,
+                       String backend, String runMode, int timeoutSeconds, boolean run) {
         this.label = label;
         this.enabled = enabled;
         this.executable = executable;
@@ -24,11 +30,13 @@ public final class CommandSpec {
         this.backend = backend;
         this.runMode = runMode;
         this.timeoutSeconds = timeoutSeconds;
+        this.run = run;
     }
 
     public static CommandSpec fromRow(Map<String, Object> row) {
         String label = string(row, "label", "Unnamed command");
         boolean enabled = !Boolean.FALSE.equals(row.get("enabled"));
+        boolean run = Boolean.TRUE.equals(row.get("run"));
         String executable = string(row, "executable", "");
         String args = string(row, "args", "");
         String backend = string(row, "backend", "Default");
@@ -38,7 +46,7 @@ public final class CommandSpec {
         int timeout = number(row, "timeoutSeconds", 10);
         if (timeout < 1) timeout = 1;
         if (timeout > 30) timeout = 30;
-        return new CommandSpec(label, enabled, executable, args, backend, runMode, timeout);
+        return new CommandSpec(label, enabled, executable, args, backend, runMode, timeout, run);
     }
 
     /** Executable plus parsed arguments, as one argv list. */

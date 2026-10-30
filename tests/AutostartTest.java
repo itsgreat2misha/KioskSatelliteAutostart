@@ -72,6 +72,13 @@ public final class AutostartTest {
         check(badSpec.backend.equals("Default"), "unknown backend becomes Default");
         check(badSpec.timeoutSeconds == 30, "timeout clamped to 30");
         check(badSpec.enabled, "enabled defaults to true when absent");
+        check(!badSpec.run, "run toggle defaults to false when absent");
+        Map<String, Object> runRow = new HashMap<String, Object>();
+        runRow.put("executable", "/system/bin/id");
+        runRow.put("run", Boolean.TRUE);
+        check(CommandSpec.fromRow(runRow).run, "run toggle parses true");
+        check(CommandSpec.fromRow(runRow).hash().equals(RunState.hash("/system/bin/id", "")),
+                "run toggle does not change command hash");
 
         System.out.println("AutostartTest: all checks passed");
     }
