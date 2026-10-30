@@ -1,0 +1,177 @@
+{
+    "apiVersion": 1,
+    "author": "itsgreat2misha",
+    "buttons": [
+        {
+            "description": "Run all enabled commands now, ignoring Once per boot tracking. A manual run does not mark commands as run for this boot.",
+            "group": "Commands",
+            "id": "runNow",
+            "label": "Run now",
+            "title": "Run commands now"
+        },
+        {
+            "description": "Check whether root (su) and Shizuku are available on this kiosk.",
+            "group": "Autostart",
+            "id": "probeBackends",
+            "label": "Check",
+            "title": "Check backends"
+        }
+    ],
+    "capabilities": [
+        "shizuku",
+        "entities"
+    ],
+    "commands": [
+        {
+            "id": "runNow",
+            "title": "Run autostart commands now"
+        }
+    ],
+    "description": "Run commands you choose every time Kiosk Satellite starts, through root (su) or Shizuku. Commands can run on every start or only once per boot, so a Kiosk restart does not repeat them.",
+    "entryClass": "autostart.AutostartPlugin",
+    "groups": [
+        {
+            "title": "Autostart"
+        },
+        {
+            "readings": [
+                "text_sensor.status",
+                "text_sensor.last_run"
+            ],
+            "readingsTitle": "Autostart readings",
+            "title": "Commands"
+        },
+        {
+            "title": "Advanced"
+        }
+    ],
+    "headless": true,
+    "id": "kiosk-autostart",
+    "license": "Apache-2.0",
+    "minAndroidSdk": 24,
+    "minAppVersion": "2026.10.40",
+    "name": "Autostart",
+    "schemaVersion": 1,
+    "settings": [
+        {
+            "default": "Auto",
+            "description": "Auto uses root when su works, otherwise Shizuku. A command can override this.",
+            "group": "Autostart",
+            "key": "defaultBackend",
+            "options": [
+                "Auto",
+                "Root",
+                "Shizuku"
+            ],
+            "title": "Default backend",
+            "type": "select"
+        },
+        {
+            "default": "Once per boot",
+            "description": "Once per boot skips a command on later Kiosk restarts in the same boot. A command can override this.",
+            "group": "Autostart",
+            "key": "defaultRunMode",
+            "options": [
+                "Once per boot",
+                "Every start"
+            ],
+            "title": "Default run mode",
+            "type": "select"
+        },
+        {
+            "default": 0,
+            "description": "Wait this long after Kiosk starts before running automatic commands. Manual runs ignore it.",
+            "group": "Autostart",
+            "input": "field",
+            "key": "startupDelaySeconds",
+            "max": 60,
+            "min": 0,
+            "step": 1,
+            "title": "Startup delay",
+            "type": "number",
+            "unit": "s"
+        },
+        {
+            "addTitle": "Add command",
+            "default": [],
+            "fields": [
+                {
+                    "key": "label",
+                    "required": true,
+                    "title": "Label",
+                    "type": "string"
+                },
+                {
+                    "default": true,
+                    "key": "enabled",
+                    "title": "Enabled",
+                    "type": "boolean"
+                },
+                {
+                    "key": "executable",
+                    "required": true,
+                    "title": "Executable",
+                    "type": "string"
+                },
+                {
+                    "default": "",
+                    "key": "args",
+                    "title": "Arguments",
+                    "type": "string"
+                },
+                {
+                    "default": "Default",
+                    "key": "backend",
+                    "options": [
+                        "Default",
+                        "Auto",
+                        "Root",
+                        "Shizuku"
+                    ],
+                    "title": "Backend",
+                    "type": "select"
+                },
+                {
+                    "default": "Default",
+                    "key": "runMode",
+                    "options": [
+                        "Default",
+                        "Once per boot",
+                        "Every start"
+                    ],
+                    "title": "Run mode",
+                    "type": "select"
+                },
+                {
+                    "default": 10,
+                    "input": "field",
+                    "key": "timeoutSeconds",
+                    "max": 30,
+                    "min": 1,
+                    "step": 1,
+                    "title": "Timeout",
+                    "type": "number",
+                    "unit": "s"
+                }
+            ],
+            "group": "Commands",
+            "key": "commands",
+            "maxItems": 32,
+            "row": {
+                "subtitle": "executable",
+                "title": "label"
+            },
+            "title": "Commands",
+            "type": "list"
+        },
+        {
+            "default": "",
+            "description": "Do not edit. Autostart stores which commands already ran on this boot here. Clearing it makes Once per boot commands run again on the next Kiosk start.",
+            "group": "Advanced",
+            "key": "runState",
+            "title": "Run state (managed by Autostart)",
+            "type": "string"
+        }
+    ],
+    "version": "1.0.0"
+}
