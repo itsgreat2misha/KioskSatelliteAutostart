@@ -151,6 +151,14 @@ who can edit this plugin's settings. The plugin sends no data
 anywhere: it runs local commands and reports only to Kiosk
 Satellite's log, status and text sensors.
 
+Do not put secrets in commands. Command executables and arguments
+are stored as plain plugin settings, not as secrets, so a token or
+password written into an argument would sit there in plain text
+and show up in the settings UI, logs and sensor output. If a
+command needs a credential, keep it out of the command itself:
+put it in a script file on the device with tight permissions and
+have the command call that script instead.
+
 ## Examples
 
 | What | Executable | Arguments |

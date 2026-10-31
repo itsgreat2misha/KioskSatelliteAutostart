@@ -53,6 +53,7 @@
         }
     ],
     "headless": true,
+    "icon": "icon.png",
     "id": "kiosk-autostart",
     "license": "Apache-2.0",
     "minAndroidSdk": 24,
@@ -202,5 +203,5 @@
             }
         }
     ],
-    "version": "1.2.0"
+    "version": "1.2.1"
 }
