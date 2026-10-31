@@ -70,9 +70,7 @@ plugin status and published as the `Autostart status` and
 `Autostart last run` text sensors.
 
 Enabling the plugin alone does not run commands; they run on the
-next Kiosk app start. Once per boot tracking is keyed by the boot
-itself, not by wall-clock time, so a device whose clock resets on
-reboot cannot falsely skip commands. Only successful automatic runs
+next Kiosk app start. Only successful automatic runs
 are marked, so a failed command retries on the next Kiosk start.
 
 Shizuku must be installed, running and granted to Kiosk Satellite
@@ -94,7 +92,6 @@ every run.
 | Launch an app | `/system/bin/am` | `start -n com.example/.MainActivity` |
 | Start a service | `/system/bin/am` | `startservice -n com.example/.MyService` |
 | Grant a permission | `/system/bin/pm` | `grant com.example android.permission.POST_NOTIFICATIONS` |
-| Read process identity (test) | `/system/bin/id` | *(empty)* |
 
 Replace the package and class names with the app you actually mean.
 
@@ -119,8 +116,7 @@ have the command call that script instead.
 
 Kiosk Satellite 2026.10.40 or newer, Android 7.0 (API 24) or newer.
 Root commands need a rooted device with a silent `su` grant for
-Kiosk Satellite. Shizuku commands need Shizuku installed, running
-and granted to Kiosk Satellite.
+Kiosk Satellite.
 
 ## Building
 
@@ -130,9 +126,8 @@ python3 tools/build.py --android-platform 35
 ```
 
 The ZIP appears in `dist/`. Releases are built by GitHub Actions
-from a version tag; Kiosk Satellite only accepts release assets
-uploaded by that workflow for GitHub installs.
+from a version tag.
 
 ## License
 
-Apache-2.0. Kiosk Satellite itself has its own application license.
+Apache-2.0.
