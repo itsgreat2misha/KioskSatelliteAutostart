@@ -73,8 +73,6 @@ Enabling the plugin alone does not run commands; they run on the
 next Kiosk app start. Only successful automatic runs
 are marked, so a failed command retries on the next Kiosk start.
 
-Shizuku must be installed, running and granted to Kiosk Satellite
-(**Settings > Device > Shizuku**) before a Shizuku command can run.
 Autostart does not start Shizuku, and it does not substitute `su`
 when a command is set to Shizuku only. When shell syntax is genuinely
 needed, use `/system/bin/sh` with `-c` as the executable.
@@ -115,8 +113,10 @@ have the command call that script instead.
 ## Requirements
 
 Kiosk Satellite 2026.10.40 or newer, Android 7.0 (API 24) or newer.
-Root commands need a rooted device with a silent `su` grant for
-Kiosk Satellite.
+Commands need either root or Shizuku: root commands need a rooted
+device with a silent `su` grant for Kiosk Satellite, and Shizuku
+commands need Shizuku installed, running, and granted to Kiosk
+Satellite (**Settings > Device > Shizuku**).
 
 ## Building
 
