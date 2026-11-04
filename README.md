@@ -10,6 +10,16 @@ permission after Kiosk starts.
 
 ## Installation
 
+Use the button below to open this plugin in your Kiosk Satellite,
+where you review it and choose **Trust and install**:
+
+[![Install in Kiosk Satellite](https://kiosksatellite.com/img/badges/plugin-add.svg)](https://kiosksatellite.com/redirect/plugin/?repository=itsgreat2misha/KioskSatelliteAutostart)
+
+Then enable **Autostart** from its entry row, open its settings and
+add commands.
+
+### Manual
+
 1. Open **Settings > Plugin Manager** in Kiosk Satellite and turn on
    **Enable Plugins**.
 2. Choose **Add plugin**, paste
@@ -19,12 +29,19 @@ permission after Kiosk starts.
 4. Enable **Autostart** from its entry row, then open its settings and
    add commands.
 
-Once it is listed in Community Plugins, you will also be able to find
-it by searching for `Autostart` in **Settings > Plugin Manager >
-Browse plugins**.
+This plugin is not yet listed in Community Plugins — a submission is
+pending. Until it is listed, install it with the button above or
+manually; searching **Browse plugins** will not find it yet.
 
 For local testing only, **Plugin Manager > Developer Tools > Install
 from ZIP** accepts the ZIP built by `python3 tools/build.py`.
+
+## Upgrading and uninstalling
+
+To upgrade, install the newer release the same way; your commands
+and settings are kept. Uninstalling the plugin deletes its settings,
+including all saved commands, so copy anything you want to keep
+before you uninstall.
 
 ## Settings
 

@@ -21,10 +21,10 @@ import java.util.concurrent.TimeUnit;
  * <p>There is no single su syntax. Two are in common use, and this
  * class tries them in order, once, and remembers which one worked:
  * <ul>
- * <li>{@code su 0 <argv...>} — direct argv, no shell. This is the
- * syntax on the Tuya F5-3 panel: {@code su -c ...} fails there with
- * exit 1, which is why v1.0's probe wrongly reported root as
- * unavailable on that panel even though su works.
+ * <li>{@code su 0 <argv...>} — direct argv, no shell. Some devices'
+ * {@code su} rejects the {@code -c} form (it exits 1 even though su
+ * itself works), so probing only that form would wrongly report
+ * root as unavailable on those devices.
  * <li>{@code su -c <shell string>} — the Magisk-style form, with the
  * argv shell-quoted into one string.
  * </ul>
