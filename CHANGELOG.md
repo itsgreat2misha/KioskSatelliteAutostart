@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-11-04
+
+### Added
+
+- **Manual** schedule: a task that never runs on its own — only
+  when you run it, via **Run tasks now**, the **Run all scheduled
+  tasks** action, or its per-row **Run now** toggle.
+- Per-task **Delay** (0–300 s): an automatic run waits this long
+  immediately before running the task, so tasks that fire together
+  can be staggered. Manual runs ignore it.
+
+### Changed
+
+- Schedule and backend are now set per task only. The plugin-wide
+  **Default backend**, **Default schedule** and **Startup delay**
+  settings are removed. Existing tasks are migrated automatically
+  on the first start of the new version: a task set to `Default`
+  takes the old plugin-wide value, and the old **Startup delay**
+  becomes the **Delay** of **On boot** and **On Kiosk start** tasks.
+
+### Removed
+
+- The **Check backends** button. Backend availability is now
+  checked automatically when Kiosk starts and when settings are
+  saved, and shown in the plugin status.
+
 ## [1.3.2] - 2026-11-04
 
 ### Fixed

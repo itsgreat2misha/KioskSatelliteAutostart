@@ -15,10 +15,15 @@ import java.util.TimeZone;
  * also gives the right local-time behaviour across DST changes for
  * daily and weekly times.
  *
- * <p>Semantics, per schedule type (the resolved schedule, after the
- * plugin-wide default is applied):
+ * <p>Semantics, per schedule type (each task's own schedule; there
+ * is no plugin-wide default):
  *
  * <ul>
+ * <li><b>On boot / On Kiosk start</b> — not handled here; the plugin
+ * runs those in its start pass.
+ * <li><b>Manual</b> — never due. A manual task runs only when the
+ * user runs it (the run-all action/button or its per-row Run
+ * toggle).
  * <li><b>Interval</b> — due every {@code intervalMinutes} after the
  * anchor (the last accounted run). With no anchor the task is due
  * immediately, so a new interval task runs soon after it is added and
@@ -43,6 +48,7 @@ public final class Schedule {
     public static final String INTERVAL = "Interval";
     public static final String DAILY = "Daily";
     public static final String WEEKLY = "Weekly";
+    public static final String MANUAL = "Manual";
     public static final String CATCH_UP = "Catch up once";
     public static final String SKIP = "Skip";
 
@@ -52,8 +58,8 @@ public final class Schedule {
 
     private Schedule() {}
 
-    public static boolean isScheduled(String effectiveSchedule) {
-        return INTERVAL.equals(effectiveSchedule) || DAILY.equals(effectiveSchedule) || WEEKLY.equals(effectiveSchedule);
+    public static boolean isScheduled(String schedule) {
+        return INTERVAL.equals(schedule) || DAILY.equals(schedule) || WEEKLY.equals(schedule);
     }
 
     /** Minutes since midnight for "HH:MM" (H:MM also accepted), or -1 when invalid. */
@@ -107,17 +113,17 @@ public final class Schedule {
      * task with no valid time of day). The anchor is the last accounted
      * run, or null when the task has never run.
      */
-    public static long nextDueMs(TaskSpec spec, String effectiveSchedule, String scheduleKey, Long anchorMs, long nowMs, TimeZone tz) {
-        if (INTERVAL.equals(effectiveSchedule)) return intervalDueMs(spec, scheduleKey, anchorMs, nowMs);
-        if (DAILY.equals(effectiveSchedule) || WEEKLY.equals(effectiveSchedule)) {
-            return calendarNextDueMs(spec, effectiveSchedule, anchorMs, nowMs, tz);
+    public static long nextDueMs(TaskSpec spec, String schedule, String scheduleKey, Long anchorMs, long nowMs, TimeZone tz) {
+        if (INTERVAL.equals(schedule)) return intervalDueMs(spec, scheduleKey, anchorMs, nowMs);
+        if (DAILY.equals(schedule) || WEEKLY.equals(schedule)) {
+            return calendarNextDueMs(spec, schedule, anchorMs, nowMs, tz);
         }
         return -1;
     }
 
     /** True when the task should run at {@code nowMs}. */
-    public static boolean isDue(TaskSpec spec, String effectiveSchedule, String scheduleKey, Long anchorMs, long nowMs, TimeZone tz) {
-        long due = nextDueMs(spec, effectiveSchedule, scheduleKey, anchorMs, nowMs, tz);
+    public static boolean isDue(TaskSpec spec, String schedule, String scheduleKey, Long anchorMs, long nowMs, TimeZone tz) {
+        long due = nextDueMs(spec, schedule, scheduleKey, anchorMs, nowMs, tz);
         return due >= 0 && due <= nowMs;
     }
 
@@ -136,22 +142,22 @@ public final class Schedule {
         return due;
     }
 
-    private static long calendarNextDueMs(TaskSpec spec, String effectiveSchedule, Long anchorMs, long nowMs, TimeZone tz) {
+    private static long calendarNextDueMs(TaskSpec spec, String schedule, Long anchorMs, long nowMs, TimeZone tz) {
         int minutes = parseTimeOfDayMinutes(spec.timeOfDay);
         if (minutes < 0) return -1;
-        long latest = latestOccurrenceMs(spec, effectiveSchedule, minutes, nowMs, tz);
+        long latest = latestOccurrenceMs(spec, schedule, minutes, nowMs, tz);
         if (latest >= 0 && (anchorMs == null || anchorMs.longValue() < latest)) {
             if (CATCH_UP.equals(spec.missedPolicy) || nowMs - latest <= SKIP_WINDOW_MS) return latest;
         }
-        return nextOccurrenceMs(spec, effectiveSchedule, minutes, nowMs, tz);
+        return nextOccurrenceMs(spec, schedule, minutes, nowMs, tz);
     }
 
     /** Most recent occurrence at or before {@code nowMs}, or -1 when none can be computed. */
-    static long latestOccurrenceMs(TaskSpec spec, String effectiveSchedule, int minutesOfDay, long nowMs, TimeZone tz) {
-        int targetWeekday = WEEKLY.equals(effectiveSchedule) ? weekdayConstant(spec.weekday) : -1;
-        if (WEEKLY.equals(effectiveSchedule) && targetWeekday < 0) return -1;
+    static long latestOccurrenceMs(TaskSpec spec, String schedule, int minutesOfDay, long nowMs, TimeZone tz) {
+        int targetWeekday = WEEKLY.equals(schedule) ? weekdayConstant(spec.weekday) : -1;
+        if (WEEKLY.equals(schedule) && targetWeekday < 0) return -1;
         for (int back = 0; back <= 7; back++) {
-            Calendar candidate = occurrenceOnOffset(spec, effectiveSchedule, minutesOfDay, nowMs, tz, -back);
+            Calendar candidate = occurrenceOnOffset(spec, schedule, minutesOfDay, nowMs, tz, -back);
             if (candidate == null) continue;
             long time = candidate.getTimeInMillis();
             if (time <= nowMs) return time;
@@ -160,11 +166,11 @@ public final class Schedule {
     }
 
     /** First occurrence strictly after {@code nowMs}, or -1 when none can be computed. */
-    static long nextOccurrenceMs(TaskSpec spec, String effectiveSchedule, int minutesOfDay, long nowMs, TimeZone tz) {
-        int targetWeekday = WEEKLY.equals(effectiveSchedule) ? weekdayConstant(spec.weekday) : -1;
-        if (WEEKLY.equals(effectiveSchedule) && targetWeekday < 0) return -1;
+    static long nextOccurrenceMs(TaskSpec spec, String schedule, int minutesOfDay, long nowMs, TimeZone tz) {
+        int targetWeekday = WEEKLY.equals(schedule) ? weekdayConstant(spec.weekday) : -1;
+        if (WEEKLY.equals(schedule) && targetWeekday < 0) return -1;
         for (int ahead = 0; ahead <= 7; ahead++) {
-            Calendar candidate = occurrenceOnOffset(spec, effectiveSchedule, minutesOfDay, nowMs, tz, ahead);
+            Calendar candidate = occurrenceOnOffset(spec, schedule, minutesOfDay, nowMs, tz, ahead);
             if (candidate == null) continue;
             long time = candidate.getTimeInMillis();
             if (time > nowMs) return time;
@@ -181,11 +187,11 @@ public final class Schedule {
      * ambiguous time on fall-back day resolves to its second,
      * standard-time occurrence.
      */
-    private static Calendar occurrenceOnOffset(TaskSpec spec, String effectiveSchedule, int minutesOfDay, long refMs, TimeZone tz, int dayOffset) {
+    private static Calendar occurrenceOnOffset(TaskSpec spec, String schedule, int minutesOfDay, long refMs, TimeZone tz, int dayOffset) {
         Calendar calendar = Calendar.getInstance(tz);
         calendar.setTimeInMillis(refMs);
         calendar.add(Calendar.DATE, dayOffset);
-        if (WEEKLY.equals(effectiveSchedule) && calendar.get(Calendar.DAY_OF_WEEK) != weekdayConstant(spec.weekday)) {
+        if (WEEKLY.equals(schedule) && calendar.get(Calendar.DAY_OF_WEEK) != weekdayConstant(spec.weekday)) {
             return null;
         }
         calendar.set(Calendar.HOUR_OF_DAY, minutesOfDay / 60);

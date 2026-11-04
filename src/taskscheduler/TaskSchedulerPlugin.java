@@ -62,6 +62,18 @@ import me.jxl.kiosk.plugins.PluginHost;
  * policy, not at all) when the device sleeps or Kiosk is not
  * running. The Catch up once policy runs a missed task once at the
  * next opportunity.
+ * <li>A task's delay holds back its automatic runs: the worker
+ * waits that long immediately before running it, so start tasks can
+ * be staggered without a plugin-wide startup delay. Manual runs
+ * ignore the delay, and Manual-schedule tasks never run
+ * automatically at all — only via a manual run.
+ * <li>Settings from before 1.4 — a row storing "Default" for its
+ * schedule or backend, resolved through plugin-level settings that
+ * no longer exist — are migrated once at configure time; see
+ * {@link LegacyMigration}.
+ * <li>Backend availability is checked automatically at start and
+ * on settings saves (throttled, on a probe thread) and shown in
+ * the plugin status; there is no Check backends button.
  * <li>The task list shows each task's schedule type under its
  * name: the manifest's row subtitle is the {@code schedule} row
  * field itself, so there is nothing for the plugin to maintain.
@@ -73,6 +85,8 @@ import me.jxl.kiosk.plugins.PluginHost;
 public final class TaskSchedulerPlugin implements KioskPlugin {
     private static final long SHIZUKU_GAP_MS = 300;
     private static final long SCHEDULER_MAX_SLEEP_MS = 60000L;
+    /** The automatic backend check runs at most this often, and never overwrites a run summary younger than this. */
+    private static final long PROBE_THROTTLE_MS = 60000L;
 
     private volatile PluginHost host;
     private volatile boolean stopped;
@@ -82,6 +96,9 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     private volatile String currentSetupRun;
     private volatile boolean setupCancelled;
     private volatile String lastNextRunText = "";
+    private volatile boolean migrationPending;
+    private volatile long lastProbeMs;
+    private volatile long lastSummaryMs;
     private final Set<String> runOnceSeen = Collections.synchronizedSet(new HashSet<String>());
     /** Schedule key -> epoch millis before which a failed scheduled task is not retried. In-memory only. */
     private final Map<String, Long> failedUntil = Collections.synchronizedMap(new HashMap<String, Long>());
@@ -91,49 +108,35 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     private Thread schedulerThread;
 
     private static final class Config {
-        final String defaultBackend;
-        final String defaultSchedule;
-        final int startupDelaySeconds;
         final List<TaskSpec> tasks;
         final String sessionPid;
+        /** True when parsing migrated pre-1.4 settings; the resolved list should be written back once. */
+        final boolean migrated;
 
-        Config(String defaultBackend, String defaultSchedule, int startupDelaySeconds, List<TaskSpec> tasks, String sessionPid) {
-            this.defaultBackend = defaultBackend;
-            this.defaultSchedule = defaultSchedule;
-            this.startupDelaySeconds = startupDelaySeconds;
+        Config(List<TaskSpec> tasks, String sessionPid, boolean migrated) {
             this.tasks = tasks;
             this.sessionPid = sessionPid;
+            this.migrated = migrated;
         }
 
         static Config empty() {
-            return new Config("Auto", Schedule.ON_BOOT, 0, Collections.<TaskSpec>emptyList(), "");
+            return new Config(Collections.<TaskSpec>emptyList(), "", false);
         }
 
         static Config parse(Map<String, Object> settings) {
-            String backend = TaskSpec.string(settings, "defaultBackend", "Auto");
-            if (!"Root".equals(backend) && !"Shizuku".equals(backend)) backend = "Auto";
-            String schedule = TaskSpec.string(settings, "defaultSchedule", Schedule.ON_BOOT);
-            if (!Schedule.ON_START.equals(schedule) && !Schedule.INTERVAL.equals(schedule)
-                    && !Schedule.DAILY.equals(schedule) && !Schedule.WEEKLY.equals(schedule)) schedule = Schedule.ON_BOOT;
-            int delay = TaskSpec.number(settings, "startupDelaySeconds", 0);
-            if (delay < 0) delay = 0;
-            if (delay > 60) delay = 60;
+            // Pre-1.4 rows can still store "Default" for their schedule
+            // or backend and carry no per-task delay; resolve them
+            // against the removed plugin-level settings first (see
+            // LegacyMigration). The resolved rows are used from here
+            // on whether or not the write-back in configure lands.
+            LegacyMigration.Result migration = LegacyMigration.resolveRows(settings);
             List<TaskSpec> tasks = new ArrayList<TaskSpec>();
-            Object raw = settings.get("tasks");
-            if (raw instanceof List) {
-                for (Object row : (List<?>) raw) {
-                    if (row instanceof Map) {
-                        TaskSpec spec = TaskSpec.fromRow((Map<String, Object>) row);
-                        if (spec.executable != null && spec.executable.length() > 0) tasks.add(spec);
-                    }
-                }
+            for (int i = 0; i < migration.rows.size(); i++) {
+                TaskSpec spec = TaskSpec.fromRow(migration.rows.get(i));
+                if (spec.executable != null && spec.executable.length() > 0) tasks.add(spec);
             }
             String pid = TaskSpec.string(settings, "sessionPid", "");
-            return new Config(backend, schedule, delay, tasks, pid);
-        }
-
-        String effectiveSchedule(TaskSpec spec) {
-            return "Default".equals(spec.schedule) ? defaultSchedule : spec.schedule;
+            return new Config(tasks, pid, migration.changed);
         }
     }
 
@@ -157,6 +160,8 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             }
         });
         startSchedulerThread();
+        flushMigrationWriteBack();
+        probeBackendsAutomatically();
         publishSensors("Task Scheduler ready.", "No run yet.");
         // Automatic runs must happen on a Kiosk app start, not on a
         // plugin session restart inside the same Kiosk process. KS
@@ -201,6 +206,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     @Override
     public void configure(Map<String, Object> settings) {
         config = Config.parse(settings);
+        migrationPending = config.migrated;
         state = SchedulerState.parse(
                 TaskSpec.string(settings, "runState", ""),
                 TaskSpec.string(settings, "schedulerState", ""));
@@ -209,8 +215,36 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         // before the worker is created, and the automatic pass, not
         // a one-shot toggle, owns that start.
         if (worker != null) {
+            flushMigrationWriteBack();
             scheduleRunOnce();
+            probeBackendsAutomatically();
             wakeScheduler();
+        }
+    }
+
+    /**
+     * Write the migrated task list back once, so the stored rows
+     * carry their resolved schedule, backend and delay and the
+     * migration never runs again. Called from configure (settings
+     * saves) and from start (the upgrade path: configure ran before
+     * the worker existed). A failed write-back loses nothing — the
+     * in-memory config is already resolved, and the next start or
+     * save retries while the stored rows still show legacy markers.
+     */
+    private void flushMigrationWriteBack() {
+        if (!migrationPending) return;
+        PluginHost snapshotHost = safeHost();
+        if (snapshotHost == null) return;
+        migrationPending = false;
+        try {
+            Map<String, Object> values = new HashMap<String, Object>();
+            values.put("tasks", taskRows(false));
+            snapshotHost.updateSettings(values);
+            logSafe("Migrated tasks from a pre-1.4 install: schedule and backend are now set per task.");
+        } catch (RuntimeException e) {
+            logSafe("Could not write back migrated tasks: " + e.getMessage());
+        } catch (LinkageError e) {
+            logSafe("Could not write back migrated tasks: this Kiosk Satellite version cannot update list settings.");
         }
     }
 
@@ -235,8 +269,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 scheduleManual(run);
             } else if ("clearSchedulerState".equals(id)) {
                 scheduleClearSchedulerState(run);
-            } else if ("probeBackends".equals(id)) {
-                probeBackends(run);
             }
             return;
         }
@@ -318,10 +350,9 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         for (int i = 0; i < snapshot.tasks.size(); i++) {
             TaskSpec spec = snapshot.tasks.get(i);
             if (!spec.enabled) continue;
-            String effective = snapshot.effectiveSchedule(spec);
-            if (!Schedule.isScheduled(effective)) continue;
-            String key = spec.scheduleKey(effective);
-            long due = Schedule.nextDueMs(spec, effective, key, snapshotState.anchorMillis(key), now, TimeZone.getDefault());
+            if (!Schedule.isScheduled(spec.schedule)) continue;
+            String key = spec.scheduleKey();
+            long due = Schedule.nextDueMs(spec, spec.schedule, key, snapshotState.anchorMillis(key), now, TimeZone.getDefault());
             if (due < 0) continue;
             Long retry = failedUntil.get(key);
             if (retry != null && retry.longValue() > due) due = retry.longValue();
@@ -350,9 +381,9 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             if (stopped) break;
             TaskSpec spec = snapshot.tasks.get(i);
             if (!spec.enabled) continue;
-            String effective = snapshot.effectiveSchedule(spec);
+            String effective = spec.schedule;
             if (!Schedule.isScheduled(effective)) continue;
-            String key = spec.scheduleKey(effective);
+            String key = spec.scheduleKey();
             Long anchor = snapshotState.anchorMillis(key);
             if (Schedule.INTERVAL.equals(effective) && Schedule.SKIP.equals(spec.missedPolicy) && anchor != null) {
                 long periodMs = spec.intervalMinutes * 60000L;
@@ -370,7 +401,8 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             if (!Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())) continue;
             Long retry = failedUntil.get(key);
             if (retry != null && now < retry.longValue()) continue;
-            Result result = executeTask(spec, snapshot, context);
+            if (!waitForDelay(spec)) break;
+            Result result = executeTask(spec, context);
             ran++;
             if (result.succeeded()) {
                 failedUntil.remove(key);
@@ -392,6 +424,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         if (ran > 0) {
             String summary = "Last run: scheduled pass, " + lines.size() + " task(s).";
             publishSensors(summary, joinLines(lines));
+            lastSummaryMs = System.currentTimeMillis();
             statusSafe(summary, false);
         }
         publishNextRun(config, state, System.currentTimeMillis());
@@ -415,7 +448,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         Set<String> liveKeys = new HashSet<String>();
         for (int i = 0; i < snapshot.tasks.size(); i++) {
             TaskSpec spec = snapshot.tasks.get(i);
-            liveKeys.add(spec.scheduleKey(snapshot.effectiveSchedule(spec)));
+            liveKeys.add(spec.scheduleKey());
         }
         String encoded = snapshotState.encodeAnchors(liveKeys);
         if (encoded == null) {
@@ -508,9 +541,10 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     }
 
     /**
-     * The tasks list rebuilt from the parsed config. The one
-     * whole-list write-back (the Run toggle reset below) goes
-     * through here so a rewrite always carries the full parsed row.
+     * The tasks list rebuilt from the parsed config. The whole-list
+     * write-backs (the Run toggle reset below and the one-time
+     * pre-1.4 migration) go through here so a rewrite always carries
+     * the full parsed row, every current field included.
      */
     private List<Map<String, Object>> taskRows(boolean resetRunFlags) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
@@ -528,6 +562,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             row.put("weekday", spec.weekday);
             row.put("missedPolicy", spec.missedPolicy);
             row.put("jitterMinutes", Integer.valueOf(spec.jitterMinutes));
+            row.put("delaySeconds", Integer.valueOf(spec.delaySeconds));
             row.put("timeoutSeconds", Integer.valueOf(spec.timeoutSeconds));
             row.put("run", Boolean.valueOf(!resetRunFlags && spec.run));
             rows.add(row);
@@ -615,12 +650,13 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             }
             if (stopped || setupCancelled) return;
             ExecContext context = new ExecContext();
-            Result result = executeTask(found, snapshot, context);
+            Result result = executeTask(found, context);
             if (stopped) return;
             String line = result.succeeded()
                     ? found.label + ": ok"
                     : found.label + ": failed (" + result.summary() + ")";
             publishSensors("Last run: " + line, line);
+            lastSummaryMs = System.currentTimeMillis();
             statusSafe(line, !result.succeeded());
             logSafe(line + (result.succeeded() ? "" : outputSuffix(result)));
             reportSetup(setupRun, result.succeeded() ? "success" : "error", line);
@@ -648,12 +684,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             setupCancelled = false;
         }
         try {
-            if (!manual && snapshot.startupDelaySeconds > 0) {
-                try { Thread.sleep(snapshot.startupDelaySeconds * 1000L); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-                if (stopped) return;
-                snapshot = config;
-            }
             List<TaskSpec> tasks = snapshot.tasks;
             if (tasks.isEmpty()) {
                 String message = "No tasks configured.";
@@ -682,12 +712,12 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 if (stopped || setupCancelled) break;
                 TaskSpec spec = tasks.get(i);
                 if (!spec.enabled) continue;
-                String effective = snapshot.effectiveSchedule(spec);
+                String effective = spec.schedule;
                 boolean oncePerBoot = Schedule.ON_BOOT.equals(effective);
                 boolean onStart = Schedule.ON_START.equals(effective);
                 boolean scheduled = Schedule.isScheduled(effective);
                 if (!manual && !oncePerBoot && !onStart && !scheduled) continue;
-                String key = spec.scheduleKey(effective);
+                String key = spec.scheduleKey();
                 if (!manual && scheduled) {
                     Long anchor = anchors.anchorMillis(key);
                     if (Schedule.INTERVAL.equals(effective) && Schedule.SKIP.equals(spec.missedPolicy) && anchor != null) {
@@ -713,7 +743,8 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                     lines.add(spec.label + ": skipped (already ran this boot)");
                     continue;
                 }
-                Result result = executeTask(spec, snapshot, context);
+                if (!manual && !waitForDelay(spec)) break;
+                Result result = executeTask(spec, context);
                 if (stopped) break;
                 if (result.succeeded()) {
                     ok++;
@@ -745,6 +776,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             String summary = "Last run: " + ok + " ok, " + skipped + " skipped, " + failed + " failed.";
             String detail = joinLines(lines);
             publishSensors(summary, detail);
+            lastSummaryMs = System.currentTimeMillis();
             statusSafe(summary, failed > 0);
             if (!manual) {
                 // Boot completions come from the working copy, anchors
@@ -793,9 +825,23 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         return new SchedulerState(mergedBootId, completed, anchorSide.anchorSnapshot());
     }
 
+    /**
+     * The per-task delay of an automatic run: the worker waits this
+     * long immediately before the task executes, so tasks in one pass
+     * can be staggered. Manual runs never call this. Returns false
+     * when the pass should stop instead (plugin stopping, or the
+     * settings run that owns the pass was cancelled).
+     */
+    private boolean waitForDelay(TaskSpec spec) {
+        if (spec.delaySeconds <= 0) return true;
+        try { Thread.sleep(spec.delaySeconds * 1000L); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+        return !stopped && !setupCancelled;
+    }
+
     /** Run one task through its backend, honouring Shizuku pacing within the pass. */
-    private Result executeTask(TaskSpec spec, Config snapshot, ExecContext context) {
-        BackendChoice choice = chooseBackend(spec, snapshot, context.rootInPass);
+    private Result executeTask(TaskSpec spec, ExecContext context) {
+        BackendChoice choice = chooseBackend(spec, context.rootInPass);
         if (choice.rootInPass != null) context.rootInPass = choice.rootInPass;
         if (choice.backend == null) {
             if (choice.failure != null && choice.failure.contains("Shizuku")) context.shizukuFailure = true;
@@ -827,8 +873,8 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         }
     }
 
-    private BackendChoice chooseBackend(TaskSpec spec, Config snapshot, Boolean rootInPass) {
-        String wanted = "Default".equals(spec.backend) ? snapshot.defaultBackend : spec.backend;
+    private BackendChoice chooseBackend(TaskSpec spec, Boolean rootInPass) {
+        String wanted = spec.backend;
         if ("Root".equals(wanted)) return new BackendChoice("Root", null, rootInPass);
         if ("Shizuku".equals(wanted)) {
             String state = shizukuFailureReason();
@@ -923,16 +969,34 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         return new Result(exitCode, timedOut, truncated, output, null);
     }
 
-    private void probeBackends(final String setupRun) {
+    /**
+     * The backend check used to be a settings button; it now runs on
+     * its own at plugin start and on settings saves, on the probe
+     * thread (probing spawns su, so it never runs on a callback
+     * thread). Throttled to at most once a minute, so a burst of
+     * saves cannot spawn a burst of probes. The result is always
+     * logged and goes to the plugin status unless a run summary was
+     * posted within the last minute — that summary is fresher news.
+     * A failed check only logs; it never breaks start or configure.
+     */
+    private void probeBackendsAutomatically() {
+        long now = System.currentTimeMillis();
+        if (now - lastProbeMs < PROBE_THROTTLE_MS) return;
+        lastProbeMs = now;
         Thread thread = new Thread(new Runnable() {
             public void run() {
-                boolean root = RootRunner.probe();
-                String shizuku = shizukuFailureReason();
-                String message = "Root (su): " + (root ? "available (uid 0 via " + RootRunner.formLabel() + ")" : "unavailable (neither su 0 nor su -c reported uid 0)")
-                        + ". Shizuku: " + (shizuku == null ? "ready" : shizuku) + ".";
-                statusSafe(message, false);
-                logSafe(message);
-                reportSetup(setupRun, "success", message);
+                try {
+                    boolean root = RootRunner.probe();
+                    String shizuku = shizukuFailureReason();
+                    String message = "Root (su): " + (root ? "available (uid 0 via " + RootRunner.formLabel() + ")" : "unavailable (neither su 0 nor su -c reported uid 0)")
+                            + ". Shizuku: " + (shizuku == null ? "ready" : shizuku) + ".";
+                    logSafe(message);
+                    if (System.currentTimeMillis() - lastSummaryMs >= PROBE_THROTTLE_MS) {
+                        statusSafe(message, false);
+                    }
+                } catch (RuntimeException e) {
+                    logSafe("Backend check failed: " + e.getMessage());
+                }
             }
         }, "ks-task-scheduler-probe");
         thread.setDaemon(true);

@@ -21,7 +21,7 @@ migration story in the PR:
   (`kiosk-satellite-plugin.json`), and the settings keys, command
   IDs, and sensor IDs declared in it.
 - Command behaviour: the backend options (`Auto`, `Root`,
-  `Shizuku`), the schedules (`On boot`, `On Kiosk start`, `Interval`, `Daily`, `Weekly`), and
+  `Shizuku`), the schedules (`On boot`, `On Kiosk start`, `Interval`, `Daily`, `Weekly`, `Manual`), and
   the per-command timeout range (1–30 seconds).
 - The plugin `version` in `kiosk-satellite-plugin.json` = git tag =
   release name; it only ever moves forward.
