@@ -74,6 +74,13 @@ import me.jxl.kiosk.plugins.PluginHost;
  * <li>Backend availability is checked automatically at start and
  * on settings saves (throttled, on a probe thread) and shown in
  * the plugin status; there is no Check backends button.
+ * <li>The Logging level setting gates verbose decision logging.
+ * At Verbose, passes also log why each task ran, waited or was
+ * skipped — due checks with the anchors they read, anchor saves,
+ * backend probes and choices, delay waits — to the same log;
+ * Informational keeps the result lines only. In the manifest the
+ * setting is declared before the managed state settings, so it
+ * also anchors their hidden condition and all three stay hidden.
  * <li>The task list shows each task's schedule type under its
  * name: the manifest's row subtitle is the {@code schedule} row
  * field itself, so there is nothing for the plugin to maintain.
@@ -107,20 +114,23 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     private ExecutorService worker;
     private Thread schedulerThread;
 
-    private static final class Config {
+    static final class Config {
         final List<TaskSpec> tasks;
         final String sessionPid;
         /** True when parsing migrated pre-1.4 settings; the resolved list should be written back once. */
         final boolean migrated;
+        /** True when the Logging level setting is Verbose; gates the decision-level log lines. */
+        final boolean verbose;
 
-        Config(List<TaskSpec> tasks, String sessionPid, boolean migrated) {
+        Config(List<TaskSpec> tasks, String sessionPid, boolean migrated, boolean verbose) {
             this.tasks = tasks;
             this.sessionPid = sessionPid;
             this.migrated = migrated;
+            this.verbose = verbose;
         }
 
         static Config empty() {
-            return new Config(Collections.<TaskSpec>emptyList(), "", false);
+            return new Config(Collections.<TaskSpec>emptyList(), "", false, false);
         }
 
         static Config parse(Map<String, Object> settings) {
@@ -136,7 +146,11 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 if (spec.executable != null && spec.executable.length() > 0) tasks.add(spec);
             }
             String pid = TaskSpec.string(settings, "sessionPid", "");
-            return new Config(tasks, pid, migration.changed);
+            // Logging level: anything but the exact "Verbose"
+            // option — a missing or unknown value included — is
+            // Informational.
+            boolean verbose = "Verbose".equals(TaskSpec.string(settings, "loggingLevel", "Informational"));
+            return new Config(tasks, pid, migration.changed, verbose);
         }
     }
 
@@ -374,13 +388,17 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         Config snapshot = config;
         SchedulerState snapshotState = state;
         long now = System.currentTimeMillis();
+        logVerbose("Due pass started.");
         ExecContext context = new ExecContext();
         List<String> lines = new ArrayList<String>();
         int ran = 0;
         for (int i = 0; i < snapshot.tasks.size(); i++) {
             if (stopped) break;
             TaskSpec spec = snapshot.tasks.get(i);
-            if (!spec.enabled) continue;
+            if (!spec.enabled) {
+                logVerbose(spec.label + ": skipped (disabled)");
+                continue;
+            }
             String effective = spec.schedule;
             if (!Schedule.isScheduled(effective)) continue;
             String key = spec.scheduleKey();
@@ -392,15 +410,26 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 if (now >= due + periodMs) {
                     // Skip, a whole period late: abandon the missed
                     // occurrences and re-anchor without running.
+                    logVerbose(spec.label + ": skipped (a whole interval late; re-anchored)");
                     snapshotState = snapshotState.withAnchor(key, now);
                     state = snapshotState;
                     persistAnchors(snapshot, snapshotState);
                     continue;
                 }
             }
-            if (!Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())) continue;
+            if (!Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())) {
+                long nextDue = Schedule.nextDueMs(spec, effective, key, anchor, now, TimeZone.getDefault());
+                logVerbose(spec.label + ": not due (anchor "
+                        + (anchor == null ? "none" : timeText(anchor.longValue()))
+                        + ", next due " + (nextDue < 0 ? "never" : timeText(nextDue)) + ")");
+                continue;
+            }
             Long retry = failedUntil.get(key);
-            if (retry != null && now < retry.longValue()) continue;
+            if (retry != null && now < retry.longValue()) {
+                logVerbose(spec.label + ": not due (waiting to retry a failed run at " + timeText(retry.longValue()) + ")");
+                continue;
+            }
+            logVerbose(spec.label + ": due (anchor " + (anchor == null ? "none" : timeText(anchor.longValue())) + ")");
             if (!waitForDelay(spec)) break;
             Result result = executeTask(spec, context);
             ran++;
@@ -427,6 +456,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             lastSummaryMs = System.currentTimeMillis();
             statusSafe(summary, false);
         }
+        logVerbose("Due pass finished: " + ran + " task(s) ran.");
         publishNextRun(config, state, System.currentTimeMillis());
     }
 
@@ -461,6 +491,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 Map<String, Object> values = new HashMap<String, Object>();
                 values.put("schedulerState", encoded);
                 snapshotHost.updateSettings(values);
+                logVerbose("Scheduler anchors saved: " + snapshotState.anchorSnapshot().size() + " anchor(s).");
             }
         } catch (RuntimeException e) {
             logSafe("Could not persist scheduler state: " + e.getMessage());
@@ -649,6 +680,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 return;
             }
             if (stopped || setupCancelled) return;
+            logVerbose("Running " + found.label + " on request (single-task run).");
             ExecContext context = new ExecContext();
             Result result = executeTask(found, context);
             if (stopped) return;
@@ -692,6 +724,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 reportSetup(setupRun, "success", message);
                 return;
             }
+            logVerbose((manual ? "Manual" : "Automatic") + " pass started: " + tasks.size() + " task(s) configured.");
             String bootId = BootId.current();
             SchedulerState snapshotState = state;
             boolean bootKnown = bootId != null;
@@ -711,12 +744,18 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             for (int i = 0; i < tasks.size(); i++) {
                 if (stopped || setupCancelled) break;
                 TaskSpec spec = tasks.get(i);
-                if (!spec.enabled) continue;
+                if (!spec.enabled) {
+                    logVerbose(spec.label + ": skipped (disabled)");
+                    continue;
+                }
                 String effective = spec.schedule;
                 boolean oncePerBoot = Schedule.ON_BOOT.equals(effective);
                 boolean onStart = Schedule.ON_START.equals(effective);
                 boolean scheduled = Schedule.isScheduled(effective);
-                if (!manual && !oncePerBoot && !onStart && !scheduled) continue;
+                if (!manual && !oncePerBoot && !onStart && !scheduled) {
+                    logVerbose(spec.label + ": not run automatically (Manual schedule)");
+                    continue;
+                }
                 String key = spec.scheduleKey();
                 if (!manual && scheduled) {
                     Long anchor = anchors.anchorMillis(key);
@@ -728,19 +767,30 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                             // Skip, a whole period late: abandon the
                             // missed occurrences and re-anchor without
                             // running (same resync as runDuePass).
+                            logVerbose(spec.label + ": skipped (a whole interval late; re-anchored)");
                             anchors = anchors.withAnchor(key, now);
                             anchorsChanged = true;
                             continue;
                         }
                     }
                     Long retry = failedUntil.get(key);
-                    boolean due = Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())
-                            && (retry == null || now >= retry.longValue());
-                    if (!due) continue;
+                    if (!Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())) {
+                        long nextDue = Schedule.nextDueMs(spec, effective, key, anchor, now, TimeZone.getDefault());
+                        logVerbose(spec.label + ": not due (anchor "
+                                + (anchor == null ? "none" : timeText(anchor.longValue()))
+                                + ", next due " + (nextDue < 0 ? "never" : timeText(nextDue)) + ")");
+                        continue;
+                    }
+                    if (retry != null && now < retry.longValue()) {
+                        logVerbose(spec.label + ": not due (waiting to retry a failed run at " + timeText(retry.longValue()) + ")");
+                        continue;
+                    }
+                    logVerbose(spec.label + ": due (anchor " + (anchor == null ? "none" : timeText(anchor.longValue())) + ")");
                 }
                 if (!manual && oncePerBoot && bootKnown && working.isBootCompleted(spec.hash())) {
                     skipped++;
                     lines.add(spec.label + ": skipped (already ran this boot)");
+                    logVerbose(spec.label + ": skipped (already ran this boot)");
                     continue;
                 }
                 if (!manual && !waitForDelay(spec)) break;
@@ -778,6 +828,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             publishSensors(summary, detail);
             lastSummaryMs = System.currentTimeMillis();
             statusSafe(summary, failed > 0);
+            logVerbose("Pass finished: " + ok + " ok, " + skipped + " skipped, " + failed + " failed.");
             if (!manual) {
                 // Boot completions come from the working copy, anchors
                 // from the anchors copy; both started from the same
@@ -793,6 +844,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                                 Map<String, Object> values = new HashMap<String, Object>();
                                 values.put("runState", encoded);
                                 snapshotHost.updateSettings(values);
+                                logVerbose("Run state saved: " + merged.bootCompletedSnapshot().size() + " boot task(s) marked for this boot.");
                             }
                         } catch (RuntimeException e) {
                             logSafe("Could not persist run state: " + e.getMessage());
@@ -834,6 +886,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
      */
     private boolean waitForDelay(TaskSpec spec) {
         if (spec.delaySeconds <= 0) return true;
+        logVerbose(spec.label + ": waiting " + spec.delaySeconds + " s (task delay) before running.");
         try { Thread.sleep(spec.delaySeconds * 1000L); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
         return !stopped && !setupCancelled;
@@ -847,6 +900,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             if (choice.failure != null && choice.failure.contains("Shizuku")) context.shizukuFailure = true;
             return Result.failure(choice.failure == null ? "No backend available" : choice.failure);
         }
+        logVerbose(spec.label + ": running via " + choice.backend + " (backend setting: " + spec.backend + ").");
         if ("Shizuku".equals(choice.backend)) {
             long now = System.currentTimeMillis();
             long wait = SHIZUKU_GAP_MS - (now - context.lastShizukuMs);
@@ -884,6 +938,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         // Auto: root first, Shizuku second.
         if (rootInPass == null) {
             rootInPass = RootRunner.probe();
+            logVerbose("Root probe: " + (Boolean.TRUE.equals(rootInPass) ? "available" : "unavailable") + ".");
         }
         if (Boolean.TRUE.equals(rootInPass)) return new BackendChoice("Root", null, rootInPass);
         String state = shizukuFailureReason();
@@ -1027,6 +1082,21 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         try { snapshotHost.log(truncate(message, 1000)); } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
     }
 
+    /**
+     * The verbose logging path: decision-level lines go to the same
+     * log channel as {@link #logSafe}, but only when the Logging
+     * level setting is Verbose. Static and host-explicit so the
+     * gating itself is unit-testable.
+     */
+    static void logVerboseTo(PluginHost host, boolean verbose, String message) {
+        if (!verbose || host == null) return;
+        try { host.log(truncate(message, 1000)); } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
+    }
+
+    private void logVerbose(String message) {
+        logVerboseTo(safeHost(), config.verbose, message);
+    }
+
     private void statusSafe(String message, boolean error) {
         PluginHost snapshotHost = safeHost();
         if (snapshotHost == null) return;
@@ -1048,6 +1118,11 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         try {
             snapshotHost.publishTextSensor("next_run", "Task Scheduler next run", truncate(text, 512));
         } catch (RuntimeException ignored) {} catch (LinkageError ignored) {}
+    }
+
+    /** Short local timestamp for verbose log lines, matching the next-run sensor's format. */
+    private static String timeText(long epochMs) {
+        return new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.US).format(new Date(epochMs));
     }
 
     private static String joinLines(List<String> lines) {

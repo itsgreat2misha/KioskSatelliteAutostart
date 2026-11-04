@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-11-04
+
+### Added
+
+- **Logging level** setting (**Informational** / **Verbose**),
+  in the **Advanced** section. **Verbose** adds the scheduling
+  decisions behind each pass to the plugin log — per-task
+  verdicts and reasons, the anchors read and saved, backend
+  probe results and per-task backend choices, and delay waits —
+  for troubleshooting. It changes only the log, never what
+  runs. Existing installs gain the setting at its
+  **Informational** default automatically.
+
+### Changed
+
+- The **Advanced** section returns, holding **Logging level**
+  and both buttons (**Run tasks now** and **Clear scheduler
+  state**). The plugin-managed state settings live there too
+  and are all hidden again: their hidden condition now anchors
+  on **Logging level** instead of **Session process id**, so
+  that field no longer has to stay visible. The **Tasks**
+  section is once more just the task list and the readings.
+
 ## [1.4.3] - 2026-11-04
 
 ### Changed
