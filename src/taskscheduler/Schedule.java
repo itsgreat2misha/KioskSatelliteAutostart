@@ -173,50 +173,6 @@ public final class Schedule {
     }
 
     /**
-     * One-line human summary of a task's schedule, shown under the
-     * task's name in the task list (stored in the row's
-     * {@code scheduleSummary} field, which the plugin maintains).
-     * Pure formatting over the parsed fields: {@code effectiveSchedule}
-     * is the resolved schedule, and {@code fromDefault} appends
-     * " (default)" when the row itself is set to Default.
-     */
-    public static String summary(TaskSpec spec, String effectiveSchedule, boolean fromDefault) {
-        String base;
-        if (ON_BOOT.equals(effectiveSchedule)) {
-            base = "On boot";
-        } else if (ON_START.equals(effectiveSchedule)) {
-            base = "On Kiosk start";
-        } else if (INTERVAL.equals(effectiveSchedule)) {
-            base = intervalSummary(spec.intervalMinutes);
-        } else if (DAILY.equals(effectiveSchedule)) {
-            int minutes = parseTimeOfDayMinutes(spec.timeOfDay);
-            base = minutes < 0 ? "Daily (no time set)" : "Daily at " + formatTimeOfDay(minutes);
-        } else if (WEEKLY.equals(effectiveSchedule)) {
-            int minutes = parseTimeOfDayMinutes(spec.timeOfDay);
-            base = minutes < 0 ? "Weekly on " + spec.weekday + " (no time set)"
-                    : "Weekly on " + spec.weekday + " at " + formatTimeOfDay(minutes);
-        } else {
-            base = effectiveSchedule;
-        }
-        return fromDefault ? base + " (default)" : base;
-    }
-
-    private static String intervalSummary(int intervalMinutes) {
-        if (intervalMinutes == 60) return "Every hour";
-        if (intervalMinutes > 60 && intervalMinutes % 60 == 0) return "Every " + (intervalMinutes / 60) + " hours";
-        return "Every " + intervalMinutes + " min";
-    }
-
-    /** Minutes since midnight as "5:00 PM": 12-hour clock, no leading zero, space before AM/PM. */
-    static String formatTimeOfDay(int minutesOfDay) {
-        int hour = minutesOfDay / 60;
-        int minute = minutesOfDay % 60;
-        int hour12 = hour % 12;
-        if (hour12 == 0) hour12 = 12;
-        return hour12 + ":" + (minute < 10 ? "0" : "") + minute + (hour < 12 ? " AM" : " PM");
-    }
-
-    /**
      * The occurrence on the day {@code dayOffset} days from the day
      * containing {@code refMs}, at the task's time of day — or null for
      * a weekly task when that day is not the task's weekday. Calendar
