@@ -4,14 +4,14 @@
     "buttons": [
         {
             "description": "Run all enabled tasks now, whatever their schedule. A manual run does not mark boot tasks as run for this boot and does not move scheduled tasks' anchors.",
-            "group": "Tasks",
+            "group": "Advanced",
             "id": "runNow",
             "label": "Run now",
             "title": "Run tasks now"
         },
         {
             "description": "Clears Once per boot tracking and scheduled tasks' anchors, so boot tasks run again on the next Kiosk start and scheduled tasks re-anchor.",
-            "group": "Tasks",
+            "group": "Advanced",
             "id": "clearSchedulerState",
             "label": "Clear",
             "title": "Clear scheduler state"
@@ -38,6 +38,9 @@
             ],
             "readingsTitle": "Task Scheduler readings",
             "title": "Tasks"
+        },
+        {
+            "title": "Advanced"
         }
     ],
     "headless": true,
@@ -246,37 +249,53 @@
             "type": "list"
         },
         {
+            "default": "Informational",
+            "description": "How much detail Task Scheduler writes to the Kiosk Satellite log. Verbose adds the scheduling decisions behind each pass — why a task ran, waited or was skipped, the anchors it read and saved, backend probes and choices, and delay waits — for troubleshooting. It does not change what runs. Leave it on Informational normally.",
+            "group": "Advanced",
+            "key": "loggingLevel",
+            "options": [
+                "Informational",
+                "Verbose"
+            ],
+            "title": "Logging level",
+            "type": "select"
+        },
+        {
             "default": "",
             "description": "Managed by Task Scheduler. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run start/boot tasks again.",
-            "group": "Tasks",
+            "group": "Advanced",
             "key": "sessionPid",
             "title": "Session process id (managed by Task Scheduler)",
-            "type": "string"
+            "type": "string",
+            "visibleWhen": {
+                "equals": "__never__",
+                "key": "loggingLevel"
+            }
         },
         {
             "default": "",
             "description": "Managed by Task Scheduler. It is hidden because editing it by hand is not needed; use Clear scheduler state instead.",
-            "group": "Tasks",
+            "group": "Advanced",
             "key": "runState",
             "title": "Run state (managed by Task Scheduler)",
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "sessionPid"
+                "key": "loggingLevel"
             }
         },
         {
             "default": "",
             "description": "Managed by Task Scheduler. It records when each scheduled task last ran, so due times survive restarts. Use Clear scheduler state to reset it.",
-            "group": "Tasks",
+            "group": "Advanced",
             "key": "schedulerState",
             "title": "Scheduler state (managed by Task Scheduler)",
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "sessionPid"
+                "key": "loggingLevel"
             }
         }
     ],
-    "version": "1.4.3"
+    "version": "1.5.0"
 }

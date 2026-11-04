@@ -127,7 +127,7 @@ schedule fields at all. In the task list, each task shows its
 schedule type under its name (for example `Weekly` or `On boot`)
 instead of its executable path.
 
-Buttons on the settings page:
+Buttons on the settings page, both in the **Advanced** section:
 
 - **Run tasks now** — runs all enabled tasks now, whatever their
   schedule. A manual run does not mark a boot task as run for this
@@ -137,11 +137,14 @@ Buttons on the settings page:
   scheduled tasks' anchors, so boot tasks run again on the next
   Kiosk start and scheduled tasks re-anchor.
 
-Both buttons are in the **Tasks** section of the settings page,
-under the task list. The plugin-managed state settings live in
-the same section; of those, only **Session process id** is
-visible — the rest stay hidden, as editing them by hand is not
-needed.
+The **Advanced** section also holds the **Logging level**
+setting: `Informational` (the default) keeps the plugin log to
+run results, while `Verbose` adds the scheduling decisions
+behind each pass — why a task ran, waited or was skipped, the
+anchors read and saved, backend probes and choices, and delay
+waits — for troubleshooting. It changes only the log, never
+what runs. The plugin-managed state settings live in the same
+section and stay hidden, as editing them by hand is not needed.
 
 Backend availability is checked automatically when Kiosk starts
 and when settings are saved, and the result is shown in the plugin
@@ -263,6 +266,11 @@ Satellite (**Settings > Device > Shizuku**).
   is logged and summarised in the plugin status and the
   `Task Scheduler status` and `Task Scheduler last run` text
   sensors.
+- **You need more detail about why a task did or did not run.**
+  Set **Logging level** to **Verbose** in the **Advanced**
+  section and reproduce the run: the plugin log then shows the
+  decision behind each task in each pass. Set it back to
+  **Informational** when you are done.
 
 ## Limitations
 

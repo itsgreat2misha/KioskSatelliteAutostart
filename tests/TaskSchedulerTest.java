@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package taskscheduler;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.HashMap;
@@ -9,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TimeZone;
+import me.jxl.kiosk.plugins.PluginHost;
 
 /** Plain-main tests for the pure-Java parts. Run with: java -ea -cp <classes> taskscheduler.TaskSchedulerTest */
 public final class TaskSchedulerTest {
@@ -23,6 +25,8 @@ public final class TaskSchedulerTest {
         taskSpecTests();
         scheduleTests();
         migrationTests();
+        configTests();
+        loggingTests();
         System.out.println("TaskSchedulerTest: all checks passed");
     }
 
@@ -426,6 +430,43 @@ public final class TaskSchedulerTest {
         LegacyMigration.Result currentResult = LegacyMigration.resolveRows(current);
         check(!currentResult.changed, "current settings are not migrated");
         check(!currentResult.rows.get(0).containsKey("delaySeconds"), "no delay is injected without legacy markers");
+    }
+
+    private static void configTests() {
+        // Logging level parsing: only the exact "Verbose" option is
+        // verbose; a missing key, Informational itself, an unknown
+        // value and an empty value all coerce to Informational.
+        Map<String, Object> settings = new HashMap<String, Object>();
+        check(!TaskSchedulerPlugin.Config.parse(settings).verbose, "missing logging level is Informational");
+        settings.put("loggingLevel", "Informational");
+        check(!TaskSchedulerPlugin.Config.parse(settings).verbose, "Informational is not verbose");
+        settings.put("loggingLevel", "Verbose");
+        check(TaskSchedulerPlugin.Config.parse(settings).verbose, "Verbose parses as verbose");
+        settings.put("loggingLevel", "Chatty");
+        check(!TaskSchedulerPlugin.Config.parse(settings).verbose, "unknown logging level coerces to Informational");
+        settings.put("loggingLevel", "");
+        check(!TaskSchedulerPlugin.Config.parse(settings).verbose, "empty logging level coerces to Informational");
+        check(!TaskSchedulerPlugin.Config.empty().verbose, "empty config is Informational");
+    }
+
+    /** Records log lines; every other host method keeps its interface default. */
+    private static final class RecordingHost implements PluginHost {
+        final List<String> logs = new ArrayList<String>();
+        public void showWindow(String title, String message, String buttonLabel) {}
+        public void hideWindow() {}
+        public void log(String message) { logs.add(message); }
+    }
+
+    private static void loggingTests() {
+        // The verbose gate: lines reach the log channel only at
+        // Verbose, and a missing host drops the line quietly.
+        RecordingHost host = new RecordingHost();
+        TaskSchedulerPlugin.logVerboseTo(host, false, "quiet");
+        check(host.logs.isEmpty(), "verbose line suppressed at Informational");
+        TaskSchedulerPlugin.logVerboseTo(host, true, "loud");
+        check(host.logs.size() == 1 && host.logs.get(0).equals("loud"), "verbose line forwarded at Verbose");
+        TaskSchedulerPlugin.logVerboseTo(null, true, "nowhere");
+        check(host.logs.size() == 1, "verbose line with no host is dropped, not thrown");
     }
 
     private static TaskSpec task(String schedule, int interval, String timeOfDay, String weekday, String missedPolicy, int jitter) {
