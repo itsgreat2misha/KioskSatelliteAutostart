@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-11-04
+
+### Fixed
+
+- Upgrading from 1.3.x could leave the plugin disabled. Kiosk
+  Satellite validates the stored settings against the manifest
+  before any plugin code runs, and 1.4.0 no longer declared the
+  plugin-wide settings or the `Default` schedule/backend option
+  that stored 1.3.x configurations can still contain, so the
+  validation failed and the automatic migration never got to run.
+  This transition release declares the legacy **Default backend**,
+  **Default schedule** and **Startup delay** settings and the
+  `Default` options again, so existing installs load and migrate.
+  The legacy settings are ignored apart from the one-time
+  migration and will be removed in a later release.
+
 ## [1.4.0] - 2026-11-04
 
 ### Added
