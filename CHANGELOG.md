@@ -45,9 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot load since 1.4.2 — and current configurations parse
   exactly as before.
 - The README no longer carries upgrade notes for pre-release
-  versions or for the Autostart plugin this one replaced during
-  development. The uninstall note remains: uninstalling deletes
-  the plugin's settings and tasks.
+  versions or for the Autostart plugin. The uninstall note
+  remains: uninstalling deletes the plugin's settings and
+  tasks.
 
 ## [1.5.0] - 2026-11-04
 
