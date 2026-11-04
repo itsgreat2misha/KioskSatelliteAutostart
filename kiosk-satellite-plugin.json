@@ -3,25 +3,25 @@
     "author": "itsgreat2misha",
     "buttons": [
         {
-            "description": "Run all enabled commands now, ignoring Once per boot tracking. A manual run does not mark commands as run for this boot.",
-            "group": "Commands",
+            "description": "Run all enabled tasks now, whatever their schedule. A manual run does not mark boot tasks as run for this boot and does not move scheduled tasks' anchors.",
+            "group": "Tasks",
             "id": "runNow",
             "label": "Run now",
-            "title": "Run commands now"
+            "title": "Run tasks now"
         },
         {
             "description": "Check whether root (su) and Shizuku are available on this kiosk.",
-            "group": "Autostart",
+            "group": "Scheduler",
             "id": "probeBackends",
             "label": "Check",
             "title": "Check backends"
         },
         {
-            "description": "Clears Once per boot tracking, so those commands run again on the next Kiosk start.",
+            "description": "Clears Once per boot tracking and scheduled tasks' anchors, so boot tasks run again on the next Kiosk start and scheduled tasks re-anchor.",
             "group": "Advanced",
-            "id": "clearRunState",
+            "id": "clearSchedulerState",
             "label": "Clear",
-            "title": "Clear run state"
+            "title": "Clear scheduler state"
         }
     ],
     "capabilities": [
@@ -31,22 +31,23 @@
     "commands": [
         {
             "id": "runNow",
-            "title": "Run all autostart commands"
+            "title": "Run all scheduled tasks"
         }
     ],
-    "description": "Run commands you choose every time Kiosk Satellite starts, through root (su) or Shizuku. Commands can run on every start or only once per boot, so a Kiosk restart does not repeat them.",
-    "entryClass": "autostart.AutostartPlugin",
+    "description": "Run commands you choose on boot, when Kiosk Satellite starts, or on a schedule (every so often, daily, or weekly), through root (su) or Shizuku. Scheduled runs are best-effort while Kiosk Satellite is running, with a catch-up option for missed runs.",
+    "entryClass": "taskscheduler.TaskSchedulerPlugin",
     "groups": [
         {
-            "title": "Autostart"
+            "title": "Scheduler"
         },
         {
             "readings": [
                 "text_sensor.status",
-                "text_sensor.last_run"
+                "text_sensor.last_run",
+                "text_sensor.next_run"
             ],
-            "readingsTitle": "Autostart readings",
-            "title": "Commands"
+            "readingsTitle": "Task Scheduler readings",
+            "title": "Tasks"
         },
         {
             "title": "Advanced"
@@ -54,17 +55,17 @@
     ],
     "headless": true,
     "icon": "icon.png",
-    "id": "kiosk-autostart",
+    "id": "ks-task-scheduler",
     "license": "Apache-2.0",
     "minAndroidSdk": 24,
     "minAppVersion": "2026.10.40",
-    "name": "Autostart",
+    "name": "Task Scheduler",
     "schemaVersion": 1,
     "settings": [
         {
             "default": "Auto",
-            "description": "Auto uses root when su works, otherwise Shizuku. A command can override this.",
-            "group": "Autostart",
+            "description": "Auto uses root when su works, otherwise Shizuku. A task can override this.",
+            "group": "Scheduler",
             "key": "defaultBackend",
             "options": [
                 "Auto",
@@ -75,21 +76,24 @@
             "type": "select"
         },
         {
-            "default": "Once per boot",
-            "description": "Once per boot skips a command on later Kiosk restarts in the same boot. A command can override this.",
-            "group": "Autostart",
-            "key": "defaultRunMode",
+            "default": "On boot",
+            "description": "The schedule used by tasks set to Default. On boot runs a task once per boot; On Kiosk start runs it at every Kiosk start; Interval, Daily and Weekly run it on that schedule.",
+            "group": "Scheduler",
+            "key": "defaultSchedule",
             "options": [
-                "Once per boot",
-                "Every start"
+                "On boot",
+                "On Kiosk start",
+                "Interval",
+                "Daily",
+                "Weekly"
             ],
-            "title": "Default run mode",
+            "title": "Default schedule",
             "type": "select"
         },
         {
             "default": 0,
-            "description": "Wait this long after Kiosk starts before running automatic commands. Manual runs ignore it.",
-            "group": "Autostart",
+            "description": "Wait this long after Kiosk starts before running the start/boot pass. Manual runs and scheduled runs ignore it.",
+            "group": "Scheduler",
             "input": "field",
             "key": "startupDelaySeconds",
             "max": 60,
@@ -100,7 +104,7 @@
             "unit": "s"
         },
         {
-            "addTitle": "Add command",
+            "addTitle": "Add task",
             "default": [],
             "fields": [
                 {
@@ -120,6 +124,73 @@
                     "key": "run",
                     "title": "Run now",
                     "type": "boolean"
+                },
+                {
+                    "default": "Default",
+                    "key": "schedule",
+                    "options": [
+                        "Default",
+                        "On boot",
+                        "On Kiosk start",
+                        "Interval",
+                        "Daily",
+                        "Weekly"
+                    ],
+                    "title": "Schedule",
+                    "type": "select"
+                },
+                {
+                    "default": 60,
+                    "input": "field",
+                    "key": "intervalMinutes",
+                    "max": 10080,
+                    "min": 5,
+                    "step": 1,
+                    "title": "Interval (Interval schedule only)",
+                    "type": "number",
+                    "unit": "min"
+                },
+                {
+                    "default": "",
+                    "key": "timeOfDay",
+                    "title": "Time of day, HH:MM (Daily/Weekly only)",
+                    "type": "string"
+                },
+                {
+                    "default": "Monday",
+                    "key": "weekday",
+                    "options": [
+                        "Monday",
+                        "Tuesday",
+                        "Wednesday",
+                        "Thursday",
+                        "Friday",
+                        "Saturday",
+                        "Sunday"
+                    ],
+                    "title": "Weekday (Weekly schedule only)",
+                    "type": "select"
+                },
+                {
+                    "default": "Catch up once",
+                    "key": "missedPolicy",
+                    "options": [
+                        "Catch up once",
+                        "Skip"
+                    ],
+                    "title": "If a scheduled run is missed",
+                    "type": "select"
+                },
+                {
+                    "default": 0,
+                    "input": "field",
+                    "key": "jitterMinutes",
+                    "max": 120,
+                    "min": 0,
+                    "step": 1,
+                    "title": "Jitter (scheduled runs only)",
+                    "type": "number",
+                    "unit": "min"
                 },
                 {
                     "key": "executable",
@@ -146,17 +217,6 @@
                     "type": "select"
                 },
                 {
-                    "default": "Default",
-                    "key": "runMode",
-                    "options": [
-                        "Default",
-                        "Once per boot",
-                        "Every start"
-                    ],
-                    "title": "Run mode",
-                    "type": "select"
-                },
-                {
                     "default": 10,
                     "input": "field",
                     "key": "timeoutSeconds",
@@ -168,40 +228,52 @@
                     "unit": "s"
                 }
             ],
-            "group": "Commands",
-            "key": "commands",
+            "group": "Tasks",
+            "key": "tasks",
             "maxItems": 32,
             "row": {
                 "subtitle": "executable",
                 "title": "label"
             },
-            "title": "Commands",
+            "title": "Tasks",
             "type": "list"
         },
         {
             "default": "",
-            "description": "Managed by Autostart. It is hidden because editing it by hand is not needed; use Clear run state instead.",
+            "description": "Managed by Task Scheduler. It is hidden because editing it by hand is not needed; use Clear scheduler state instead.",
             "group": "Advanced",
             "key": "runState",
-            "title": "Run state (managed by Autostart)",
+            "title": "Run state (managed by Task Scheduler)",
             "type": "string",
             "visibleWhen": {
-                "key": "defaultBackend",
-                "equals": "__never__"
+                "equals": "__never__",
+                "key": "defaultBackend"
             }
         },
         {
             "default": "",
-            "description": "Managed by Autostart. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run commands again.",
+            "description": "Managed by Task Scheduler. It records when each scheduled task last ran, so due times survive restarts. Use Clear scheduler state to reset it.",
             "group": "Advanced",
-            "key": "sessionPid",
-            "title": "Session process id (managed by Autostart)",
+            "key": "schedulerState",
+            "title": "Scheduler state (managed by Task Scheduler)",
             "type": "string",
             "visibleWhen": {
-                "key": "defaultBackend",
-                "equals": "__never__"
+                "equals": "__never__",
+                "key": "defaultBackend"
+            }
+        },
+        {
+            "default": "",
+            "description": "Managed by Task Scheduler. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run start/boot tasks again.",
+            "group": "Advanced",
+            "key": "sessionPid",
+            "title": "Session process id (managed by Task Scheduler)",
+            "type": "string",
+            "visibleWhen": {
+                "equals": "__never__",
+                "key": "defaultBackend"
             }
         }
     ],
-    "version": "1.2.1"
+    "version": "1.3.0"
 }

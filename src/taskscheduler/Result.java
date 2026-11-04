@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package autostart;
+package taskscheduler;
 
 /** The outcome of one command execution, from either backend. */
 public final class Result {

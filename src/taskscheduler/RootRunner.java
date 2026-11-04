@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package autostart;
+package taskscheduler;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -122,7 +122,7 @@ public final class RootRunner {
                         }
                     } catch (IOException ignored) {}
                 }
-            }, "autostart-root-reader");
+            }, "ks-task-scheduler-root-reader");
             readerThread.setDaemon(true);
             readerThread.start();
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);

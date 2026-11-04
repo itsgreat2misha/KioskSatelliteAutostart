@@ -1,7 +1,7 @@
 name: CI
 
-# build.yml is the release workflow (release publish / manual dispatch
-# only). This workflow gives every push and pull request build evidence:
+# build.yml is the release workflow (v* tag push / manual dispatch
+# only; it creates the release itself). This workflow gives every push and pull request build evidence:
 # unit tests plus a full plugin package build.
 on:
   push:

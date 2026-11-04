@@ -1,12 +1,14 @@
-# Autostart for Kiosk Satellite
+# Task Scheduler for Kiosk Satellite
 
-Run commands you choose every time Kiosk Satellite starts, through root
-(`su`) or Shizuku. A command can run on every start, or only once per
-boot, so a Kiosk restart does not repeat it.
+Run commands you choose on boot, when Kiosk Satellite starts, or on a
+schedule — every so often, daily, or weekly — through root (`su`) or
+Shizuku.
 
-Use it for anything that needs re-applying after a reboot: a setting a
-device drops on reboot, launching an app or service, or granting a
-permission after Kiosk starts.
+Use boot and start tasks for anything that needs re-applying after a
+reboot: a setting a device drops on reboot, launching an app or
+service, or granting a permission. Use scheduled tasks for periodic
+housekeeping: restarting a flaky service, running a health check, or
+clearing a cache overnight.
 
 ## Installation
 
@@ -15,8 +17,8 @@ where you review it and choose **Trust and install**:
 
 [![Install in Kiosk Satellite](https://kiosksatellite.com/img/badges/plugin-add.svg)](https://kiosksatellite.com/redirect/plugin/?repository=itsgreat2misha/KioskSatelliteAutostart)
 
-Then enable **Autostart** from its entry row, open its settings and
-add commands.
+Then enable **Task Scheduler** from its entry row, open its settings
+and add tasks.
 
 ### Manual
 
@@ -26,8 +28,8 @@ add commands.
    `https://github.com/itsgreat2misha/KioskSatelliteAutostart` and choose
    **Preview**.
 3. Review the plugin and choose **Trust and install**.
-4. Enable **Autostart** from its entry row, then open its settings and
-   add commands.
+4. Enable **Task Scheduler** from its entry row, then open its
+   settings and add tasks.
 
 This plugin is not yet listed in Community Plugins — a submission is
 pending. Until it is listed, install it with the button above or
@@ -38,143 +40,223 @@ from ZIP** accepts the ZIP built by `python3 tools/build.py`.
 
 ## Upgrading and uninstalling
 
-To upgrade, install the newer release the same way; your commands
+To upgrade, install the newer release the same way; your tasks
 and settings are kept. Uninstalling the plugin deletes its settings,
-including all saved commands, so copy anything you want to keep
+including all saved tasks, so copy anything you want to keep
 before you uninstall.
+
+### Coming from Autostart?
+
+This plugin replaces the **Autostart** plugin (the plugin ID changed
+from `kiosk-autostart` to `ks-task-scheduler`). Settings do **not**
+carry over: Autostart's commands will not appear here. Note your
+Autostart commands first, uninstall Autostart, install Task
+Scheduler, and re-enter them as tasks — your existing commands map
+one-to-one: *Once per boot* becomes the **On boot** schedule and
+*Every start* becomes **On Kiosk start**.
 
 ## Settings
 
 - **Default backend** — `Auto` uses root when `su` works, otherwise
-  Shizuku. A command can override it with `Root` or `Shizuku`.
-- **Default run mode** — `Once per boot` skips a command on later
-  Kiosk restarts in the same boot; `Every start` runs it every time.
-  A command can override it.
+  Shizuku. A task can override it with `Root` or `Shizuku`.
+- **Default schedule** — the schedule used by tasks set to `Default`.
+  A task can override it.
 - **Startup delay** — seconds to wait after Kiosk starts before
-  running automatic commands. Manual runs ignore it.
-- **Commands** — a list of up to 32. Each row has a label, an enabled
-  toggle, an executable (absolute path, for example
-  `/system/bin/settings`), its arguments (one string, split
-  quote-aware, for example `put system user_rotation 1`), a backend,
-  a run mode and a timeout in seconds (1–30).
+  running the start/boot pass. Manual runs and scheduled runs
+  ignore it.
+- **Tasks** — a list of up to 32. Each row has a label, an enabled
+  toggle, a schedule and its fields (below), an executable (absolute
+  path, for example `/system/bin/settings`), its arguments (one
+  string, split quote-aware, for example
+  `put system user_rotation 1`), a backend, and a timeout in seconds
+  (1–30).
+
+Each task's **schedule** is one of:
+
+- **On boot** — run once per boot; a Kiosk restart in the same boot
+  does not repeat it.
+- **On Kiosk start** — run at every Kiosk app start.
+- **Interval** — run every **interval** minutes after the previous
+  run (5 minutes to one week). A new interval task runs soon after
+  it is added, then anchors on that run.
+- **Daily** — run at the **time of day** (`HH:MM`, local time).
+- **Weekly** — run on the chosen **weekday** at the **time of day**.
+
+Scheduled (Interval/Daily/Weekly) tasks also have:
+
+- **If a scheduled run is missed** — `Catch up once` (the default)
+  runs the task once at the next opportunity if its time passed
+  while Kiosk was not running; it never replays more than one missed
+  run. `Skip` abandons a run that is well past its time (more than
+  15 minutes for daily/weekly, a full interval for interval tasks).
+- **Jitter** — optionally delay each scheduled run by a fixed
+  per-occurrence amount between 0 and this many minutes, so a fleet
+  of kiosks does not all run the same task at the same moment.
+
+Every row shows all of the schedule fields; only the fields for the
+schedule you picked apply, and the rest are ignored.
 
 Buttons on the settings page:
 
-- **Run commands now** — runs all enabled commands now, ignoring
-  Once per boot tracking. A manual run does not mark commands as run
-  for this boot, so testing a command does not consume its
-  once-per-boot slot.
-- **Clear run state** — clears Once per boot tracking, so those
-  commands run again on the next Kiosk start.
+- **Run tasks now** — runs all enabled tasks now, whatever their
+  schedule. A manual run does not mark a boot task as run for this
+  boot and does not move a scheduled task's next run, so testing a
+  task does not disturb its schedule.
+- **Clear scheduler state** — clears Once per boot tracking and
+  scheduled tasks' anchors, so boot tasks run again on the next
+  Kiosk start and scheduled tasks re-anchor.
 - **Check backends** — reports whether root (`su`) and Shizuku are
   available on this kiosk.
 
-To run a single command on its own, open its row, turn **Run now** on
-and save. It runs once, ignoring Once per boot tracking, without
-marking it as run for this boot. A disabled command does not run.
+To run a single task on its own, open its row, turn **Run now** on
+and save. It runs once, ignoring its schedule, without marking it
+as run for this boot or moving its next scheduled run. A disabled
+task does not run.
 
-**Run all autostart commands** is also available as an action you can
+**Run all scheduled tasks** is also available as an action you can
 assign to a gesture, the kiosk drawer or Home Assistant. It does the
-same as **Run commands now**.
+same as **Run tasks now**.
 
 ## How it works
 
-Automatic commands run when the Kiosk app starts, on a background
-thread, one after another. A long command cannot stall Kiosk, a
-crashing command cannot take Kiosk down, and a failed command does
-not stop later commands. Every result is logged, summarised in the
-plugin status and published as the `Autostart status` and
-`Autostart last run` text sensors.
+Tasks run on a background thread, one after another. A long task
+cannot stall Kiosk, a crashing task cannot take Kiosk down, and a
+failed task does not stop later tasks. Every result is logged,
+summarised in the plugin status and published as the
+`Task Scheduler status`, `Task Scheduler last run` and
+`Task Scheduler next run` text sensors.
 
-Enabling the plugin alone does not run commands; they run on the
-next Kiosk app start. Only successful automatic runs
-are marked, so a failed command retries on the next Kiosk start.
+Start and boot tasks run when the Kiosk app starts. Enabling the
+plugin alone does not run them; they run on the next Kiosk app
+start. Only successful start/boot runs are marked, so a failed boot
+task retries on the next Kiosk start. A failed *scheduled* task
+waits for its next scheduled time instead of retrying immediately.
 
-Autostart does not start Shizuku, and it does not substitute `su`
-when a command is set to Shizuku only. When shell syntax is genuinely
-needed, use `/system/bin/sh` with `-c` as the executable.
+A scheduler thread inside the plugin watches the scheduled tasks'
+due times and runs them when they come due. It remembers each
+scheduled task's last run in a hidden plugin-managed setting, so
+due times survive Kiosk and plugin restarts. Editing a task's
+schedule (type, interval, time, or weekday) starts that task's
+schedule fresh; other edits keep its place.
 
-Check a command with **Run commands now** before relying on it at
-startup, and prefer idempotent commands: settings, grants and
-launches are; toggles are not, because they would flip again on
-every run.
+Task Scheduler does not start Shizuku, and it does not substitute
+`su` when a task is set to Shizuku only. When shell syntax is
+genuinely needed, use `/system/bin/sh` with `-c` as the executable.
+
+Check a task with **Run tasks now** before relying on it, and
+prefer idempotent tasks: settings, grants and launches are; toggles
+are not, because they would flip again on every run.
 
 ## Examples
 
-| What | Executable | Arguments |
-| --- | --- | --- |
-| Re-apply rotation | `/system/bin/settings` | `put system user_rotation 1` |
-| Launch an app | `/system/bin/am` | `start -n com.example/.MainActivity` |
-| Start a service | `/system/bin/am` | `startservice -n com.example/.MyService` |
-| Grant a permission | `/system/bin/pm` | `grant com.example android.permission.POST_NOTIFICATIONS` |
+On boot / on Kiosk start:
+
+| What | Schedule | Executable | Arguments |
+| --- | --- | --- | --- |
+| Re-apply rotation | On boot | `/system/bin/settings` | `put system user_rotation 1` |
+| Launch an app | On Kiosk start | `/system/bin/am` | `start -n com.example/.MainActivity` |
+| Grant a permission | On boot | `/system/bin/pm` | `grant com.example android.permission.POST_NOTIFICATIONS` |
+
+Scheduled:
+
+| What | Schedule | Executable | Arguments |
+| --- | --- | --- | --- |
+| Restart a service every 6 hours | Interval, 360 min | `/system/bin/am` | `startservice -n com.example/.MyService` |
+| Clear an app's cache nightly | Daily, 03:15 | `/system/bin/pm` | `clear com.example` |
+| Weekly health check | Weekly, Monday 08:00 | `/system/bin/sh` | `-c "echo ok > /data/local/tmp/health"` |
 
 Replace the package and class names with the app you actually mean.
 
 ## Security
 
-This plugin runs inside Kiosk Satellite with its privileges. A command
-set to Root runs as root, and a command set to Shizuku runs as
+This plugin runs inside Kiosk Satellite with its privileges. A task
+set to Root runs as root, and a task set to Shizuku runs as
 Shizuku's shell or root user. Only install and enable it if you trust
-the commands you enter and anyone else who can edit this plugin's
-settings. The plugin sends no data anywhere: it runs local commands
+the tasks you enter and anyone else who can edit this plugin's
+settings. The plugin sends no data anywhere: it runs local tasks
 and reports only to Kiosk Satellite's log, status and text sensors.
 
-Do not put secrets in commands. Command executables and arguments
+Do not put secrets in tasks. Task executables and arguments
 are stored as plain plugin settings, not as secrets, so a token or
 password written into an argument would sit there in plain text
 and show up in the settings UI, logs and sensor output. If a
-command needs a credential, keep it out of the command itself:
+task needs a credential, keep it out of the task itself:
 put it in a script file on the device with tight permissions and
-have the command call that script instead.
+have the task call that script instead.
 
 ## Requirements
 
 Kiosk Satellite 2026.10.40 or newer, Android 7.0 (API 24) or newer.
-Commands need either root or Shizuku: root commands need a rooted
+Tasks need either root or Shizuku: root tasks need a rooted
 device with a silent `su` grant for Kiosk Satellite, and Shizuku
-commands need Shizuku installed, running, and granted to Kiosk
+tasks need Shizuku installed, running, and granted to Kiosk
 Satellite (**Settings > Device > Shizuku**).
 
 ## Troubleshooting
 
-- **A command did not run at startup.** Enabling the plugin alone
-  does not run commands; they run on the next Kiosk app start. Test
-  the command first with **Run commands now**.
+- **A task did not run at startup.** Enabling the plugin alone
+  does not run start/boot tasks; they run on the next Kiosk app
+  start. Test the task first with **Run tasks now**.
+- **A scheduled task did not run at its time.** See the
+  best-effort timing limitation below. Check the
+  `Task Scheduler next run` sensor for when the plugin thinks the
+  next run is, and check that the task's time of day is in
+  24-hour `HH:MM` form — a daily or weekly task with an invalid
+  time never runs.
 - **A backend is unavailable.** Use **Check backends** to see
   whether root (`su`) and Shizuku are available on this kiosk. For
-  Shizuku commands, make sure Shizuku is installed, running, and
+  Shizuku tasks, make sure Shizuku is installed, running, and
   granted to Kiosk Satellite (**Settings > Device > Shizuku**) —
   see Limitations below.
-- **A `Once per boot` command was skipped.** Only successful
+- **An `On boot` task was skipped.** Only successful
   automatic runs are marked as run for this boot, so a failed
-  command retries on the next Kiosk start. To run a skipped command
-  again in the same boot, use **Clear run state**, or run it
+  task retries on the next Kiosk start. To run a skipped task
+  again in the same boot, use **Clear scheduler state**, or run it
   manually — manual runs ignore Once per boot tracking.
 - **Shell syntax (pipes, redirection, `&&`) did not work.**
-  Commands run directly, without a shell. Use `/system/bin/sh`
+  Tasks run directly, without a shell. Use `/system/bin/sh`
   with `-c` as the executable when shell syntax is genuinely
   needed.
-- **A command failed but later commands still ran.** That is
-  expected: commands run one after another on a background thread,
-  and a failed command does not stop later commands. Every result
+- **A task failed but later tasks still ran.** That is
+  expected: tasks run one after another on a background thread,
+  and a failed task does not stop later tasks. Every result
   is logged and summarised in the plugin status and the
-  `Autostart status` and `Autostart last run` text sensors.
+  `Task Scheduler status` and `Task Scheduler last run` text
+  sensors.
 
 ## Limitations
 
-- Commands need either root or Shizuku (see Requirements). With
+- Tasks need either root or Shizuku (see Requirements). With
   the `Auto` backend the plugin uses root when `su` works,
-  otherwise Shizuku; a command set to `Root` or `Shizuku` only
+  otherwise Shizuku; a task set to `Root` or `Shizuku` only
   uses that backend.
 - The plugin does not start Shizuku itself, and it does not
-  substitute `su` when a command is set to Shizuku only. Shizuku
-  must already be running when the command runs.
-- Commands run directly, without a shell: each command is a single
+  substitute `su` when a task is set to Shizuku only. Shizuku
+  must already be running when the task runs.
+- **Scheduled runs are best-effort, not exact-time alarms.** The
+  scheduler runs inside Kiosk Satellite's process, and plugins
+  cannot use Android's alarm or job-scheduling APIs or hold the
+  device awake. If the device is asleep or Kiosk Satellite is not
+  running at a task's due time, the run happens late — when Kiosk
+  next runs and notices — or, with the `Skip` missed-run policy,
+  not at all. Do not use scheduled tasks for anything where
+  running late (or, with `Skip`, not running) would be a problem,
+  such as alarms or time-critical actions.
+- **Missed runs are never replayed more than once.** With
+  `Catch up once`, a task whose time passed while Kiosk was off
+  runs a single time at the next opportunity, however many runs
+  were missed.
+- On the day daylight saving time ends, an ambiguous daily or
+  weekly time (one that occurs twice) runs at its second,
+  standard-time occurrence; a time inside the spring-forward gap
+  runs shifted forward by the gap.
+- Tasks run directly, without a shell: each task is a single
   executable (absolute path) plus one arguments string. Use
   `/system/bin/sh` with `-c` for shell syntax.
-- At most 32 commands, each with a timeout of 1–30 seconds.
-- Command executables and arguments are stored as plain plugin
-  settings, not as secrets — do not put secrets in commands (see
+- At most 32 tasks, each with a timeout of 1–30 seconds. This is
+  a scheduler for short commands, not for long-running jobs.
+- Task executables and arguments are stored as plain plugin
+  settings, not as secrets — do not put secrets in tasks (see
   Security above).
 
 ## Building
@@ -184,8 +266,12 @@ python3 tools/test.py
 python3 tools/build.py --android-platform 35
 ```
 
-The ZIP appears in `dist/`. Releases are built by GitHub Actions
-from a version tag.
+The ZIP appears in `dist/`. To release: update the CHANGELOG,
+push a `v*` tag (for example `v1.3.0`), and the Release workflow
+tests and builds the plugin, creates the GitHub release for the
+tag — with the CHANGELOG section for that version as its notes
+when one exists — and attaches the ZIP, its checksum and the
+manifest, all uploaded by GitHub Actions.
 
 ## License
 

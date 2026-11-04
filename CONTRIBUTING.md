@@ -17,11 +17,11 @@ in Java for Android; the build is driven by Python scripts in
 These are load-bearing for existing users; changing them needs a
 migration story in the PR:
 
-- The plugin ID (`kiosk-autostart`), the manifest file
+- The plugin ID (`ks-task-scheduler`), the manifest file
   (`kiosk-satellite-plugin.json`), and the settings keys, command
   IDs, and sensor IDs declared in it.
 - Command behaviour: the backend options (`Auto`, `Root`,
-  `Shizuku`), the run modes (`Once per boot`, `Every start`), and
+  `Shizuku`), the schedules (`On boot`, `On Kiosk start`, `Interval`, `Daily`, `Weekly`), and
   the per-command timeout range (1–30 seconds).
 - The plugin `version` in `kiosk-satellite-plugin.json` = git tag =
   release name; it only ever moves forward.
@@ -30,7 +30,7 @@ migration story in the PR:
 
 1. Open an issue first for anything larger than a small fix, so the
    approach can be agreed before code is written.
-2. Keep the change scoped: plugin code lives in `src/autostart/`,
+2. Keep the change scoped: plugin code lives in `src/taskscheduler/`,
    the bundled Kiosk Satellite SDK lives in `sdk/`, and build/test
    tooling lives in `tools/`. Do not edit the SDK copy to work
    around a plugin bug.

@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an improvement to the Autostart plugin
+description: Suggest an improvement to the Task Scheduler plugin
 labels: [enhancement]
 body:
   - type: textarea
@@ -13,6 +13,6 @@ body:
     id: proposal
     attributes:
       label: Suggested change
-      description: How you would like it to work. Remove any secrets from example commands.
+      description: How you would like it to work. Remove any secrets from example tasks.
     validations:
       required: false
