@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-11-04
+
+### Removed
+
+- The legacy plugin-wide **Default backend**, **Default schedule**
+  and **Startup delay** settings and the `Default` schedule/backend
+  option for tasks — declared again in 1.4.1 only so that 1.3.x
+  upgrades would load — are gone for good. Schedule and backend
+  are per-task settings only.
+- **Breaking:** this version cannot load a stored configuration
+  that still contains those settings or a task set to `Default`,
+  which is every install that ran 1.3.x–1.4.1: Kiosk Satellite
+  validates stored settings against the manifest before any
+  plugin code runs, so there is nothing left for the migration to
+  resolve. Upgrading requires a clean install — remove the
+  plugin (which deletes its settings), install 1.4.2 and
+  re-enter your tasks. Fresh installs are unaffected.
+
+### Changed
+
+- The **Session process id** setting now appears in the
+  **Advanced** group. It is a small plugin-managed value and
+  stays visible because the other managed state settings anchor
+  their hidden condition on it.
+
 ## [1.4.1] - 2026-11-04
 
 ### Fixed
