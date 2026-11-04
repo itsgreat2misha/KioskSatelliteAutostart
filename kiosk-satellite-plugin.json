@@ -11,7 +11,7 @@
         },
         {
             "description": "Clears Once per boot tracking and scheduled tasks' anchors, so boot tasks run again on the next Kiosk start and scheduled tasks re-anchor.",
-            "group": "Advanced",
+            "group": "Tasks",
             "id": "clearSchedulerState",
             "label": "Clear",
             "title": "Clear scheduler state"
@@ -38,9 +38,6 @@
             ],
             "readingsTitle": "Task Scheduler readings",
             "title": "Tasks"
-        },
-        {
-            "title": "Advanced"
         }
     ],
     "headless": true,
@@ -251,7 +248,7 @@
         {
             "default": "",
             "description": "Managed by Task Scheduler. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run start/boot tasks again.",
-            "group": "Advanced",
+            "group": "Tasks",
             "key": "sessionPid",
             "title": "Session process id (managed by Task Scheduler)",
             "type": "string"
@@ -259,7 +256,7 @@
         {
             "default": "",
             "description": "Managed by Task Scheduler. It is hidden because editing it by hand is not needed; use Clear scheduler state instead.",
-            "group": "Advanced",
+            "group": "Tasks",
             "key": "runState",
             "title": "Run state (managed by Task Scheduler)",
             "type": "string",
@@ -271,7 +268,7 @@
         {
             "default": "",
             "description": "Managed by Task Scheduler. It records when each scheduled task last ran, so due times survive restarts. Use Clear scheduler state to reset it.",
-            "group": "Advanced",
+            "group": "Tasks",
             "key": "schedulerState",
             "title": "Scheduler state (managed by Task Scheduler)",
             "type": "string",
@@ -281,5 +278,5 @@
             }
         }
     ],
-    "version": "1.4.2"
+    "version": "1.4.3"
 }
