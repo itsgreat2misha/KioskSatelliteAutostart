@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-11-04
+
+### Changed
+
+- The settings page now has a single **Tasks** section:
+  **Clear scheduler state** sits directly under **Run tasks
+  now**, and the plugin-managed state settings live there too.
+  The **Advanced** section is gone. Of the managed settings,
+  only **Session process id** is visible — the other two anchor
+  their hidden condition on it.
+
 ## [1.4.2] - 2026-11-04
 
 ### Removed

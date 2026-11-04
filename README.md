@@ -137,6 +137,12 @@ Buttons on the settings page:
   scheduled tasks' anchors, so boot tasks run again on the next
   Kiosk start and scheduled tasks re-anchor.
 
+Both buttons are in the **Tasks** section of the settings page,
+under the task list. The plugin-managed state settings live in
+the same section; of those, only **Session process id** is
+visible — the rest stay hidden, as editing them by hand is not
+needed.
+
 Backend availability is checked automatically when Kiosk starts
 and when settings are saved, and the result is shown in the plugin
 status at the top of the settings page — there is no button for it.
