@@ -135,6 +135,48 @@ device with a silent `su` grant for Kiosk Satellite, and Shizuku
 commands need Shizuku installed, running, and granted to Kiosk
 Satellite (**Settings > Device > Shizuku**).
 
+## Troubleshooting
+
+- **A command did not run at startup.** Enabling the plugin alone
+  does not run commands; they run on the next Kiosk app start. Test
+  the command first with **Run commands now**.
+- **A backend is unavailable.** Use **Check backends** to see
+  whether root (`su`) and Shizuku are available on this kiosk. For
+  Shizuku commands, make sure Shizuku is installed, running, and
+  granted to Kiosk Satellite (**Settings > Device > Shizuku**) —
+  see Limitations below.
+- **A `Once per boot` command was skipped.** Only successful
+  automatic runs are marked as run for this boot, so a failed
+  command retries on the next Kiosk start. To run a skipped command
+  again in the same boot, use **Clear run state**, or run it
+  manually — manual runs ignore Once per boot tracking.
+- **Shell syntax (pipes, redirection, `&&`) did not work.**
+  Commands run directly, without a shell. Use `/system/bin/sh`
+  with `-c` as the executable when shell syntax is genuinely
+  needed.
+- **A command failed but later commands still ran.** That is
+  expected: commands run one after another on a background thread,
+  and a failed command does not stop later commands. Every result
+  is logged and summarised in the plugin status and the
+  `Autostart status` and `Autostart last run` text sensors.
+
+## Limitations
+
+- Commands need either root or Shizuku (see Requirements). With
+  the `Auto` backend the plugin uses root when `su` works,
+  otherwise Shizuku; a command set to `Root` or `Shizuku` only
+  uses that backend.
+- The plugin does not start Shizuku itself, and it does not
+  substitute `su` when a command is set to Shizuku only. Shizuku
+  must already be running when the command runs.
+- Commands run directly, without a shell: each command is a single
+  executable (absolute path) plus one arguments string. Use
+  `/system/bin/sh` with `-c` for shell syntax.
+- At most 32 commands, each with a timeout of 1–30 seconds.
+- Command executables and arguments are stored as plain plugin
+  settings, not as secrets — do not put secrets in commands (see
+  Security above).
+
 ## Building
 
 ```sh
