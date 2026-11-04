@@ -140,6 +140,16 @@
                     "type": "select"
                 },
                 {
+                    "default": "",
+                    "key": "scheduleSummary",
+                    "title": "Schedule summary",
+                    "type": "string",
+                    "visibleWhen": {
+                        "equals": "__never__",
+                        "key": "schedule"
+                    }
+                },
+                {
                     "default": 60,
                     "input": "field",
                     "key": "intervalMinutes",
@@ -148,13 +158,30 @@
                     "step": 1,
                     "title": "Interval (Interval schedule only)",
                     "type": "number",
-                    "unit": "min"
+                    "unit": "min",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "On boot",
+                            "On Kiosk start",
+                            "Daily",
+                            "Weekly"
+                        ]
+                    }
                 },
                 {
                     "default": "",
                     "key": "timeOfDay",
                     "title": "Time of day, HH:MM (Daily/Weekly only)",
-                    "type": "string"
+                    "type": "string",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "On boot",
+                            "On Kiosk start",
+                            "Interval"
+                        ]
+                    }
                 },
                 {
                     "default": "Monday",
@@ -169,7 +196,16 @@
                         "Sunday"
                     ],
                     "title": "Weekday (Weekly schedule only)",
-                    "type": "select"
+                    "type": "select",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "On boot",
+                            "On Kiosk start",
+                            "Interval",
+                            "Daily"
+                        ]
+                    }
                 },
                 {
                     "default": "Catch up once",
@@ -179,7 +215,14 @@
                         "Skip"
                     ],
                     "title": "If a scheduled run is missed",
-                    "type": "select"
+                    "type": "select",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "On boot",
+                            "On Kiosk start"
+                        ]
+                    }
                 },
                 {
                     "default": 0,
@@ -190,7 +233,14 @@
                     "step": 1,
                     "title": "Jitter (scheduled runs only)",
                     "type": "number",
-                    "unit": "min"
+                    "unit": "min",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "On boot",
+                            "On Kiosk start"
+                        ]
+                    }
                 },
                 {
                     "key": "executable",
@@ -232,7 +282,7 @@
             "key": "tasks",
             "maxItems": 32,
             "row": {
-                "subtitle": "executable",
+                "subtitle": "scheduleSummary",
                 "title": "label"
             },
             "title": "Tasks",
@@ -275,5 +325,5 @@
             }
         }
     ],
-    "version": "1.3.0"
+    "version": "1.3.1"
 }

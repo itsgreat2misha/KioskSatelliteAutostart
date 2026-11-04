@@ -93,8 +93,14 @@ Scheduled (Interval/Daily/Weekly) tasks also have:
   per-occurrence amount between 0 and this many minutes, so a fleet
   of kiosks does not all run the same task at the same moment.
 
-Every row shows all of the schedule fields; only the fields for the
-schedule you picked apply, and the rest are ignored.
+The task editor shows only the fields that apply to the schedule
+you picked: an **On boot** task, for example, has no interval, time
+of day or weekday fields. A task set to `Default` shows all of
+them, because its timing comes from the **Default schedule**
+setting above. In the task list, each task shows its schedule under
+its name (for example `Weekly on Friday at 5:00 PM`, or `Daily at
+5:00 PM (default)` for a task using the default schedule) instead
+of its executable path.
 
 Buttons on the settings page:
 

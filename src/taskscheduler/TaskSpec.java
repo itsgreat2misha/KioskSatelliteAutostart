@@ -20,11 +20,15 @@ public final class TaskSpec {
     public final int jitterMinutes; // 0..120
     public final int timeoutSeconds;
     public final boolean run; // One-shot per-row run toggle; see TaskSchedulerPlugin. Not part of argv or hash.
+    // Display only: the schedule summary the plugin maintains in the row
+    // (see Schedule.summary) so the task list can show it as the row
+    // subtitle. Not part of argv, hash or the schedule key.
+    public final String scheduleSummary;
 
     public TaskSpec(String label, boolean enabled, String executable, String args,
                     String backend, String schedule, int intervalMinutes, String timeOfDay,
                     String weekday, String missedPolicy, int jitterMinutes,
-                    int timeoutSeconds, boolean run) {
+                    int timeoutSeconds, boolean run, String scheduleSummary) {
         this.label = label;
         this.enabled = enabled;
         this.executable = executable;
@@ -38,6 +42,7 @@ public final class TaskSpec {
         this.jitterMinutes = jitterMinutes;
         this.timeoutSeconds = timeoutSeconds;
         this.run = run;
+        this.scheduleSummary = scheduleSummary;
     }
 
     public static TaskSpec fromRow(Map<String, Object> row) {
@@ -67,8 +72,9 @@ public final class TaskSpec {
         int timeout = number(row, "timeoutSeconds", 10);
         if (timeout < 1) timeout = 1;
         if (timeout > 30) timeout = 30;
+        String summary = string(row, "scheduleSummary", "");
         return new TaskSpec(label, enabled, executable, args, backend, schedule, interval,
-                timeOfDay, weekday, missedPolicy, jitter, timeout, run);
+                timeOfDay, weekday, missedPolicy, jitter, timeout, run, summary);
     }
 
     /** Executable plus parsed arguments, as one argv list. */

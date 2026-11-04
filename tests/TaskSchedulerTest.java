@@ -22,6 +22,7 @@ public final class TaskSchedulerTest {
         schedulerStateTests();
         taskSpecTests();
         scheduleTests();
+        scheduleSummaryTests();
         System.out.println("TaskSchedulerTest: all checks passed");
     }
 
@@ -275,6 +276,64 @@ public final class TaskSchedulerTest {
         check(fallCal.get(Calendar.DAY_OF_MONTH) == 1 && fallCal.get(Calendar.HOUR_OF_DAY) == 1
                 && fallCal.get(Calendar.MINUTE) == 30 && NEW_YORK.getOffset(fallDue) == -5L * 3600L * 1000L,
                 "fall-back daily picks the standard-time 01:30 (EST), got " + fallCal.getTime());
+    }
+
+    private static void scheduleSummaryTests() {
+        // Start/boot types.
+        check("On boot".equals(Schedule.summary(task("On boot", 60, "", "Monday", Schedule.CATCH_UP, 0),
+                Schedule.ON_BOOT, false)), "summary on boot");
+        check("On Kiosk start".equals(Schedule.summary(task("On Kiosk start", 60, "", "Monday", Schedule.CATCH_UP, 0),
+                Schedule.ON_START, false)), "summary on start");
+
+        // Interval wording: minutes under an hour, the hour, whole hours, other spans.
+        check("Every 5 min".equals(summaryOf("Interval", 5, "", "Monday")), "summary interval 5");
+        check("Every 45 min".equals(summaryOf("Interval", 45, "", "Monday")), "summary interval 45");
+        check("Every hour".equals(summaryOf("Interval", 60, "", "Monday")), "summary interval 60");
+        check("Every 90 min".equals(summaryOf("Interval", 90, "", "Monday")), "summary interval 90");
+        check("Every 2 hours".equals(summaryOf("Interval", 120, "", "Monday")), "summary interval 120");
+        check("Every 3 hours".equals(summaryOf("Interval", 180, "", "Monday")), "summary interval 180");
+
+        // Daily times: 12-hour clock, midnight/noon edges, no leading zero.
+        check("Daily at 12:00 AM".equals(summaryOf("Daily", 60, "00:00", "Monday")), "summary daily midnight");
+        check("Daily at 12:00 PM".equals(summaryOf("Daily", 60, "12:00", "Monday")), "summary daily noon");
+        check("Daily at 9:05 AM".equals(summaryOf("Daily", 60, "09:05", "Monday")), "summary daily morning");
+        check("Daily at 5:00 PM".equals(summaryOf("Daily", 60, "17:00", "Monday")), "summary daily evening");
+        check("Daily (no time set)".equals(summaryOf("Daily", 60, "", "Monday")), "summary daily no time");
+        check("Daily (no time set)".equals(summaryOf("Daily", 60, "25:00", "Monday")), "summary daily invalid time");
+
+        // Weekly.
+        check("Weekly on Friday at 5:00 PM".equals(summaryOf("Weekly", 60, "17:00", "Friday")), "summary weekly");
+        check("Weekly on Friday (no time set)".equals(summaryOf("Weekly", 60, "", "Friday")), "summary weekly no time");
+
+        // Default rows: the summary resolves through the default schedule
+        // and says so.
+        TaskSpec defaultRow = task("Daily", 60, "17:00", "Monday", Schedule.CATCH_UP, 0);
+        check("Daily at 5:00 PM (default)".equals(Schedule.summary(defaultRow, Schedule.DAILY, true)),
+                "summary default suffix");
+        TaskSpec defaultInterval = task("Interval", 60, "", "Monday", Schedule.CATCH_UP, 0);
+        check("Every hour (default)".equals(Schedule.summary(defaultInterval, Schedule.INTERVAL, true)),
+                "summary default interval suffix");
+
+        // scheduleSummary is display only: it is parsed from the row, and
+        // changing it changes neither the task hash nor the schedule key.
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("executable", "/system/bin/id");
+        row.put("args", "");
+        row.put("schedule", "Daily");
+        row.put("timeOfDay", "07:05");
+        row.put("scheduleSummary", "Daily at 7:05 AM");
+        TaskSpec withSummary = TaskSpec.fromRow(row);
+        check("Daily at 7:05 AM".equals(withSummary.scheduleSummary), "scheduleSummary parses");
+        row.put("scheduleSummary", "something else entirely");
+        TaskSpec otherSummary = TaskSpec.fromRow(row);
+        check(withSummary.hash().equals(otherSummary.hash()), "scheduleSummary does not change the hash");
+        check(withSummary.scheduleKey(Schedule.DAILY).equals(otherSummary.scheduleKey(Schedule.DAILY)),
+                "scheduleSummary does not change the schedule key");
+    }
+
+    private static String summaryOf(String schedule, int interval, String timeOfDay, String weekday) {
+        TaskSpec spec = task(schedule, interval, timeOfDay, weekday, Schedule.CATCH_UP, 0);
+        return Schedule.summary(spec, schedule, false);
     }
 
     private static TaskSpec task(String schedule, int interval, String timeOfDay, String weekday, String missedPolicy, int jitter) {
