@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile the Autostart plugin against the SDK and run its unit tests."""
+"""Compile the Task Scheduler plugin against the SDK and run its unit tests."""
 import os
 import subprocess
 import sys
@@ -28,13 +28,13 @@ sources = [
     *sorted((root / "src").rglob("*.java")),
     *sorted((root / "tests").rglob("*.java")),
 ]
-with tempfile.TemporaryDirectory(prefix="kiosk-autostart-test-") as directory:
+with tempfile.TemporaryDirectory(prefix="ks-task-scheduler-test-") as directory:
     subprocess.run(
         [tool("javac"), "--release", "8", "-cp", platform, "-d", directory, *map(str, sources)],
         check=True,
     )
     subprocess.run(
-        [tool("java"), "-ea", "-cp", os.pathsep.join([directory, platform]), "autostart.AutostartTest"],
+        [tool("java"), "-ea", "-cp", os.pathsep.join([directory, platform]), "taskscheduler.TaskSchedulerTest"],
         check=True,
     )
 

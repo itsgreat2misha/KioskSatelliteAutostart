@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-11-04
+
+### Changed
+
+- The plugin is now **Task Scheduler** (plugin ID
+  `ks-task-scheduler`, previously Autostart / `kiosk-autostart`).
+  Settings do not carry over from Autostart; commands must be
+  re-entered as tasks (see the README's "Coming from Autostart?"
+  section).
+- Commands are now tasks with a per-task schedule: **On boot**
+  (previously Once per boot), **On Kiosk start** (previously Every
+  start), plus new **Interval**, **Daily** and **Weekly** schedules
+  with a missed-run policy (`Catch up once` or `Skip`) and optional
+  per-task jitter. The settings key `commands` is now `tasks` and
+  `defaultRunMode` is now `defaultSchedule`.
+- **Clear run state** is now **Clear scheduler state** and also
+  clears scheduled tasks' anchors.
+- The release workflow now runs on a `v*` tag push and creates the
+  GitHub release itself (previously it ran when a release was
+  published and attached assets to it).
+
+### Added
+
+- A scheduler thread that runs Interval, Daily and Weekly tasks
+  when they come due while Kiosk Satellite is running, with each
+  task's last run persisted in a hidden plugin-managed setting.
+  Scheduled timing is best-effort (see the README's Limitations).
+- `Task Scheduler next run` text sensor alongside the renamed
+  status and last run sensors.
+- New clock icon.
+
 ## [1.2.1] - 2026-10-31
 
 ### Added

@@ -1,5 +1,5 @@
 name: Bug report
-description: A command did not run, ran wrongly, or the plugin misbehaved
+description: A task did not run, ran wrongly, or the plugin misbehaved
 labels: [bug]
 body:
   - type: markdown
@@ -37,13 +37,13 @@ body:
     id: what-happened
     attributes:
       label: What happened
-      description: The command you ran (secrets removed), what you expected, and what happened instead.
+      description: The task you ran (secrets removed), what you expected, and what happened instead.
     validations:
       required: true
   - type: textarea
     id: logs
     attributes:
       label: Log excerpt
-      description: The Autostart lines from the Kiosk Satellite log or the plugin status, with any secrets removed.
+      description: The Task Scheduler lines from the Kiosk Satellite log or the plugin status, with any secrets removed.
     validations:
       required: false
