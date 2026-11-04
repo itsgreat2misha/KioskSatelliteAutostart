@@ -42,9 +42,6 @@ This plugin is not yet listed in Community Plugins, so
 searching **Browse plugins** will not find it — install it
 with the button above or manually.
 
-For local testing only, **Plugin Manager > Developer Tools > Install
-from ZIP** accepts the ZIP built by `python3 tools/build.py`.
-
 ## Uninstalling
 
 Uninstalling the plugin deletes its settings, including all saved
@@ -55,23 +52,31 @@ started.
 
 ## Settings
 
-- **Tasks** — a list of up to 32. Each row starts with a label, an
-  executable (absolute path, for example `/system/bin/settings`) and
+- **Tasks** — a list of up to 32 tasks. Each task has a label, an
+  executable (an absolute path, for example `/system/bin/settings`),
   its arguments (one string, split quote-aware, for example
-  `put system user_rotation 1`), then its schedule and the schedule's
-  fields (below), a backend, a timeout in seconds (1–30), and an
-  enabled toggle.
+  `put system user_rotation 1`), a schedule and the fields for that
+  schedule (below), a backend, a timeout in seconds (1–30), and an
+  enabled toggle. A disabled task never runs.
 
-Each task's **backend** is `Auto` (root when `su` works, otherwise
-Shizuku), `Root` or `Shizuku`. A new task starts with the **On
-boot** schedule, the **Auto** backend, an interval of 60 minutes
-and a timeout of 10 seconds.
+A new task starts with the **On boot** schedule, the **Auto**
+backend, an interval of 60 minutes and a timeout of 10 seconds.
+The task editor shows only the fields that apply to the schedule
+you picked: an **On boot** task, for example, has no interval,
+time of day or weekday fields, and a **Manual** task shows none of
+the schedule fields at all. In the task list, each task shows its
+schedule type under its name (for example `Weekly` or `On boot`).
 
-`Auto` is decided when the task runs: the plugin probes `su`
-first (a no-side-effects `id` check) and runs the task as root
-when that works, otherwise through Shizuku. If root was chosen
-and the command itself fails, the task has failed — it is not
-retried through Shizuku, and a command never runs twice.
+Each task's **backend** is one of:
+
+- **Auto** (the default) — root when root is available on this
+  kiosk, otherwise Shizuku.
+- **Root** — root only.
+- **Shizuku** — Shizuku only.
+
+If the backend a task uses is unavailable, or the run through it
+fails, the task has failed: it is not retried through the other
+backend, and a command never runs twice.
 
 Each task's **schedule** is one of:
 
@@ -80,12 +85,12 @@ Each task's **schedule** is one of:
 - **On Kiosk start** — run at every Kiosk app start.
 - **Interval** — run every **interval** minutes after the previous
   run (5 minutes to one week). A new interval task runs soon after
-  it is added, then anchors on that run.
+  it is added, then counts from that run.
 - **Daily** — run at the **time of day** (`HH:MM`, local time).
 - **Weekly** — run on the chosen **weekday** at the **time of day**.
-- **Manual** — never runs on its own. Run it with **Run tasks now**,
-  the **Run all enabled tasks now** action, or its per-row **Run
-  now** toggle.
+- **Manual** — never runs on its own. Run it with **Run tasks
+  now**, the **Run all enabled tasks now** action, or its per-row
+  **Run now** toggle.
 
 Scheduled (Interval/Daily/Weekly) tasks also have:
 
@@ -108,55 +113,28 @@ automatic run waits this many seconds (0–300) immediately before
 running the task, so tasks that fire at the same moment can be
 staggered. Manual runs ignore the delay.
 
-The task editor shows only the fields that apply to the schedule
-you picked: an **On boot** task, for example, has no interval, time
-of day or weekday fields, and a **Manual** task shows none of the
-schedule fields at all. In the task list, each task shows its
-schedule type under its name (for example `Weekly` or `On boot`).
-
-Buttons on the settings page, both in the **Advanced** section:
-
-- **Run tasks now** — runs all enabled tasks now, whatever their
-  schedule. A manual run does not mark a boot task as run for this
-  boot and does not move a scheduled task's next run, so testing a
-  task does not disturb its schedule.
-- **Clear scheduler state** — clears Once per boot tracking and
-  the record of scheduled tasks' past runs, so boot tasks run
-  again on the next Kiosk start and scheduled tasks start their
-  schedules fresh.
-
-The **Advanced** section also holds the **Logging level**
-setting: `Informational` (the default) keeps the plugin log to
-run results, while `Verbose` adds the scheduling decisions
-behind each pass — why a task ran, waited or was skipped, the
-anchors read and saved, backend probes and choices, and delay
-waits — for troubleshooting. It changes only the log, never
-what runs.
-
-Backend availability is checked automatically when Kiosk starts,
-when settings are saved and when Shizuku's state changes, and the
-result is always written to the plugin log. It also appears in
-the plugin status at the top of the settings page, unless a run
-summary posted within the last minute is fresher. The check is
-informational and runs at most once a minute: running a task
-never waits for it.
-Shizuku's state is read live every time a task runs, and a root
-check that finds no working `su` is retried on later passes, so a
-backend that starts late or comes back after a crash is picked up
-without restarting Kiosk.
-
 To run a single task on its own, open its row, turn **Run now** on
-and save. It runs once, ignoring its schedule. The toggle
-is a one-shot request, not a mode: the plugin switches it back off
-as it takes the request, and the same request never runs twice.
-A disabled task does not run.
+and save: the task runs once, ignoring its schedule, and the
+toggle switches itself back off. A disabled task does not run.
+
+The **Advanced** section holds:
+
+- **Logging level** — `Informational` (the default) keeps the
+  plugin log to run results. `Verbose` adds why each task ran,
+  waited or was skipped, for troubleshooting. It changes only the
+  log, never what runs.
+- **Run tasks now** (button) — runs all enabled tasks now,
+  whatever their schedule. A manual run does not mark a boot task
+  as run for this boot and does not move a scheduled task's next
+  run, so testing a task does not disturb its schedule.
+- **Clear scheduler state** (button) — clears Once per boot
+  tracking and the record of scheduled tasks' past runs, so boot
+  tasks run again on the next Kiosk start and scheduled tasks
+  start their schedules fresh.
 
 **Run all enabled tasks now** is also available as an action you
 can assign to a gesture, the kiosk drawer or Home Assistant. It
-does the same as **Run tasks now**: every enabled task runs,
-whatever its schedule — including **Manual**, **On boot** and
-**On Kiosk start** tasks. Disabled tasks never run.
-
+does the same as the **Run tasks now** button.
 ## How it works
 
 Tasks run one after another, in the order they appear in the
@@ -183,8 +161,7 @@ plugin alone does not run them; they run on the next Kiosk app
 start. Only successful start/boot runs are marked, so a failed boot
 task retries on the next Kiosk start.
 
-The plugin watches the scheduled tasks' due times and runs
-them when they come due. It remembers each
+It remembers each
 scheduled task's last accounted run — when it last ran
 successfully, or when a `Skip` resync moved it past a missed run —
 so due times survive Kiosk and plugin restarts. An interval
@@ -278,9 +255,9 @@ Satellite (**Settings > Device > Shizuku**).
   time never runs.
 - **A backend is unavailable.** The plugin status at the top of
   the settings page reports whether root (`su`) and Shizuku are
-  available on this kiosk. The result is always in the plugin
-  log; the status shows it unless a run summary from the last
-  minute is fresher.
+  available on this kiosk. A backend that starts after Kiosk
+  Satellite, or comes back after a crash, is picked up
+  automatically — you do not need to restart Kiosk Satellite.
   For Shizuku tasks, make sure
   Shizuku is installed, running, and granted to Kiosk Satellite
   (**Settings > Device > Shizuku**) — see Limitations below.
@@ -344,6 +321,9 @@ The ZIP appears in `dist/`. To release: update the CHANGELOG
 and push a `v*` tag (for example `v1.5.1`); the Release
 workflow tests and builds the plugin and creates the GitHub
 release for the tag.
+
+For local testing only, **Plugin Manager > Developer Tools > Install
+from ZIP** accepts the ZIP built by `python3 tools/build.py`.
 
 ## License
 
