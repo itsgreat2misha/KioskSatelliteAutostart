@@ -7,23 +7,26 @@ import java.util.Map;
 
 /** One row of the plugin's tasks list setting, parsed defensively. */
 public final class TaskSpec {
+    /** Longest per-task delay before an automatic run, in seconds. */
+    public static final int MAX_DELAY_SECONDS = 300;
     public final String label;
     public final boolean enabled;
     public final String executable;
     public final String args;
-    public final String backend; // Default, Auto, Root or Shizuku
-    public final String schedule; // Default, On boot, On Kiosk start, Interval, Daily or Weekly
+    public final String backend; // Auto, Root or Shizuku
+    public final String schedule; // On boot, On Kiosk start, Interval, Daily, Weekly or Manual
     public final int intervalMinutes; // Interval only, 5..10080
     public final String timeOfDay; // Daily/Weekly only, "HH:MM" or "" when invalid
     public final String weekday; // Weekly only, Monday..Sunday
     public final String missedPolicy; // Catch up once or Skip
     public final int jitterMinutes; // 0..120
+    public final int delaySeconds; // 0..300; automatic passes wait this long before running the task
     public final int timeoutSeconds;
     public final boolean run; // One-shot per-row run toggle; see TaskSchedulerPlugin. Not part of argv or hash.
 
     public TaskSpec(String label, boolean enabled, String executable, String args,
                     String backend, String schedule, int intervalMinutes, String timeOfDay,
-                    String weekday, String missedPolicy, int jitterMinutes,
+                    String weekday, String missedPolicy, int jitterMinutes, int delaySeconds,
                     int timeoutSeconds, boolean run) {
         this.label = label;
         this.enabled = enabled;
@@ -36,6 +39,7 @@ public final class TaskSpec {
         this.weekday = weekday;
         this.missedPolicy = missedPolicy;
         this.jitterMinutes = jitterMinutes;
+        this.delaySeconds = delaySeconds;
         this.timeoutSeconds = timeoutSeconds;
         this.run = run;
     }
@@ -46,12 +50,12 @@ public final class TaskSpec {
         boolean run = Boolean.TRUE.equals(row.get("run"));
         String executable = string(row, "executable", "");
         String args = string(row, "args", "");
-        String backend = string(row, "backend", "Default");
-        if (!"Auto".equals(backend) && !"Root".equals(backend) && !"Shizuku".equals(backend)) backend = "Default";
-        String schedule = string(row, "schedule", "Default");
+        String backend = string(row, "backend", "Auto");
+        if (!"Auto".equals(backend) && !"Root".equals(backend) && !"Shizuku".equals(backend)) backend = "Auto";
+        String schedule = string(row, "schedule", Schedule.ON_BOOT);
         if (!Schedule.ON_BOOT.equals(schedule) && !Schedule.ON_START.equals(schedule)
                 && !Schedule.INTERVAL.equals(schedule) && !Schedule.DAILY.equals(schedule)
-                && !Schedule.WEEKLY.equals(schedule)) schedule = "Default";
+                && !Schedule.WEEKLY.equals(schedule) && !Schedule.MANUAL.equals(schedule)) schedule = Schedule.ON_BOOT;
         int interval = number(row, "intervalMinutes", 60);
         if (interval < Schedule.MIN_INTERVAL_MINUTES) interval = Schedule.MIN_INTERVAL_MINUTES;
         if (interval > Schedule.MAX_INTERVAL_MINUTES) interval = Schedule.MAX_INTERVAL_MINUTES;
@@ -64,11 +68,14 @@ public final class TaskSpec {
         int jitter = number(row, "jitterMinutes", 0);
         if (jitter < 0) jitter = 0;
         if (jitter > 120) jitter = 120;
+        int delay = number(row, "delaySeconds", 0);
+        if (delay < 0) delay = 0;
+        if (delay > MAX_DELAY_SECONDS) delay = MAX_DELAY_SECONDS;
         int timeout = number(row, "timeoutSeconds", 10);
         if (timeout < 1) timeout = 1;
         if (timeout > 30) timeout = 30;
         return new TaskSpec(label, enabled, executable, args, backend, schedule, interval,
-                timeOfDay, weekday, missedPolicy, jitter, timeout, run);
+                timeOfDay, weekday, missedPolicy, jitter, delay, timeout, run);
     }
 
     /** Executable plus parsed arguments, as one argv list. */
@@ -84,14 +91,14 @@ public final class TaskSpec {
 
     /**
      * Schedule key: the command plus the schedule fields that decide when
-     * it is due (resolved schedule, interval, time, weekday). Anchors in
+     * it is due (schedule, interval, time, weekday). Anchors in
      * SchedulerState are stored under this key, so editing one of those
      * fields gives the task a fresh key and therefore a fresh anchor,
-     * while edits to other fields (backend, timeout, jitter, missed
-     * policy) keep the existing anchor.
+     * while edits to other fields (backend, timeout, jitter, delay,
+     * missed policy) keep the existing anchor.
      */
-    public String scheduleKey(String effectiveSchedule) {
-        return SchedulerState.hash(executable, args + "\u0000" + effectiveSchedule
+    public String scheduleKey() {
+        return SchedulerState.hash(executable, args + "\u0000" + schedule
                 + "|" + intervalMinutes + "|" + timeOfDay + "|" + weekday);
     }
 

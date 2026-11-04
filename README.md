@@ -45,6 +45,16 @@ and settings are kept. Uninstalling the plugin deletes its settings,
 including all saved tasks, so copy anything you want to keep
 before you uninstall.
 
+### Coming from 1.3.x?
+
+Schedule and backend are per-task settings now; the plugin-wide
+**Default backend**, **Default schedule** and **Startup delay**
+settings are gone. The upgrade migrates your tasks automatically
+the first time the new version starts: a task that was set to
+`Default` takes the old **Default schedule** / **Default backend**
+value, and the old **Startup delay** becomes the **Delay** of your
+**On boot** and **On Kiosk start** tasks. Nothing needs re-entering.
+
 ### Coming from Autostart?
 
 This plugin replaces the **Autostart** plugin (the plugin ID changed
@@ -57,19 +67,15 @@ one-to-one: *Once per boot* becomes the **On boot** schedule and
 
 ## Settings
 
-- **Default backend** — `Auto` uses root when `su` works, otherwise
-  Shizuku. A task can override it with `Root` or `Shizuku`.
-- **Default schedule** — the schedule used by tasks set to `Default`.
-  A task can override it.
-- **Startup delay** — seconds to wait after Kiosk starts before
-  running the start/boot pass. Manual runs and scheduled runs
-  ignore it.
 - **Tasks** — a list of up to 32. Each row starts with a label, an
   executable (absolute path, for example `/system/bin/settings`) and
   its arguments (one string, split quote-aware, for example
   `put system user_rotation 1`), then its schedule and the schedule's
   fields (below), a backend, a timeout in seconds (1–30), and an
   enabled toggle.
+
+Each task's **backend** is `Auto` (root when `su` works, otherwise
+Shizuku), `Root` or `Shizuku`.
 
 Each task's **schedule** is one of:
 
@@ -81,6 +87,9 @@ Each task's **schedule** is one of:
   it is added, then anchors on that run.
 - **Daily** — run at the **time of day** (`HH:MM`, local time).
 - **Weekly** — run on the chosen **weekday** at the **time of day**.
+- **Manual** — never runs on its own. Run it with **Run tasks now**,
+  the **Run all scheduled tasks** action, or its per-row **Run now**
+  toggle.
 
 Scheduled (Interval/Daily/Weekly) tasks also have:
 
@@ -93,13 +102,17 @@ Scheduled (Interval/Daily/Weekly) tasks also have:
   per-occurrence amount between 0 and this many minutes, so a fleet
   of kiosks does not all run the same task at the same moment.
 
+Every task except a **Manual** one also has a **Delay**: an
+automatic run waits this many seconds (0–300) immediately before
+running the task, so tasks that fire at the same moment can be
+staggered. Manual runs ignore the delay.
+
 The task editor shows only the fields that apply to the schedule
 you picked: an **On boot** task, for example, has no interval, time
-of day or weekday fields. A task set to `Default` shows all of
-them, because its timing comes from the **Default schedule**
-setting above. In the task list, each task shows its schedule type
-under its name (for example `Weekly` or `On boot`) instead of its
-executable path.
+of day or weekday fields, and a **Manual** task shows none of the
+schedule fields at all. In the task list, each task shows its
+schedule type under its name (for example `Weekly` or `On boot`)
+instead of its executable path.
 
 Buttons on the settings page:
 
@@ -110,8 +123,10 @@ Buttons on the settings page:
 - **Clear scheduler state** — clears Once per boot tracking and
   scheduled tasks' anchors, so boot tasks run again on the next
   Kiosk start and scheduled tasks re-anchor.
-- **Check backends** — reports whether root (`su`) and Shizuku are
-  available on this kiosk.
+
+Backend availability is checked automatically when Kiosk starts
+and when settings are saved, and the result is shown in the plugin
+status at the top of the settings page — there is no button for it.
 
 To run a single task on its own, open its row, turn **Run now** on
 and save. It runs once, ignoring its schedule, without marking it
@@ -208,11 +223,12 @@ Satellite (**Settings > Device > Shizuku**).
   next run is, and check that the task's time of day is in
   24-hour `HH:MM` form — a daily or weekly task with an invalid
   time never runs.
-- **A backend is unavailable.** Use **Check backends** to see
-  whether root (`su`) and Shizuku are available on this kiosk. For
-  Shizuku tasks, make sure Shizuku is installed, running, and
-  granted to Kiosk Satellite (**Settings > Device > Shizuku**) —
-  see Limitations below.
+- **A backend is unavailable.** The plugin status at the top of
+  the settings page reports whether root (`su`) and Shizuku are
+  available on this kiosk; it is checked automatically when Kiosk
+  starts and when settings are saved. For Shizuku tasks, make sure
+  Shizuku is installed, running, and granted to Kiosk Satellite
+  (**Settings > Device > Shizuku**) — see Limitations below.
 - **An `On boot` task was skipped.** Only successful
   automatic runs are marked as run for this boot, so a failed
   task retries on the next Kiosk start. To run a skipped task

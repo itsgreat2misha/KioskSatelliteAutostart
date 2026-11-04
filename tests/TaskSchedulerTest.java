@@ -22,6 +22,7 @@ public final class TaskSchedulerTest {
         schedulerStateTests();
         taskSpecTests();
         scheduleTests();
+        migrationTests();
         System.out.println("TaskSchedulerTest: all checks passed");
     }
 
@@ -119,6 +120,7 @@ public final class TaskSchedulerTest {
         row.put("weekday", "Friday");
         row.put("missedPolicy", "Skip");
         row.put("jitterMinutes", Double.valueOf(15.0));
+        row.put("delaySeconds", Double.valueOf(45.0));
         row.put("timeoutSeconds", Double.valueOf(10.0));
         TaskSpec spec = TaskSpec.fromRow(row);
         check(spec.argv().size() == 5, "argv size");
@@ -130,6 +132,7 @@ public final class TaskSchedulerTest {
         check("Friday".equals(spec.weekday), "weekday parses");
         check("Skip".equals(spec.missedPolicy), "missed policy parses");
         check(spec.jitterMinutes == 15, "jitter as double");
+        check(spec.delaySeconds == 45, "delay as double");
 
         // Invalid values fall back or clamp, in the existing style.
         Map<String, Object> bad = new HashMap<String, Object>();
@@ -143,8 +146,8 @@ public final class TaskSchedulerTest {
         bad.put("jitterMinutes", Integer.valueOf(999));
         bad.put("timeoutSeconds", Integer.valueOf(99));
         TaskSpec badSpec = TaskSpec.fromRow(bad);
-        check(badSpec.backend.equals("Default"), "unknown backend becomes Default");
-        check(badSpec.schedule.equals("Default"), "unknown schedule becomes Default");
+        check(badSpec.backend.equals("Auto"), "unknown backend becomes Auto");
+        check(badSpec.schedule.equals(Schedule.ON_BOOT), "unknown schedule becomes On boot");
         check(badSpec.intervalMinutes == Schedule.MIN_INTERVAL_MINUTES, "interval clamped to minimum");
         Map<String, Object> bigInterval = new HashMap<String, Object>();
         bigInterval.put("executable", "/system/bin/id");
@@ -166,20 +169,59 @@ public final class TaskSchedulerTest {
         check(TaskSpec.fromRow(runRow).hash().equals(SchedulerState.hash("/system/bin/id", "")),
                 "run toggle does not change task hash");
 
+        // The pre-1.4 stored value "Default" is not a schedule or a
+        // backend any more: parsed on its own (no migration) it falls
+        // back like any other unknown value. LegacyMigration resolves
+        // real stored rows against the old plugin-level values before
+        // parsing; see migrationTests.
+        Map<String, Object> defaultRow = new HashMap<String, Object>();
+        defaultRow.put("executable", "/system/bin/id");
+        defaultRow.put("schedule", "Default");
+        defaultRow.put("backend", "Default");
+        TaskSpec defaultSpec = TaskSpec.fromRow(defaultRow);
+        check(defaultSpec.schedule.equals(Schedule.ON_BOOT), "stored Default schedule falls back to On boot");
+        check(defaultSpec.backend.equals("Auto"), "stored Default backend falls back to Auto");
+
+        // Manual is a real schedule value now.
+        Map<String, Object> manualRow = new HashMap<String, Object>();
+        manualRow.put("executable", "/system/bin/id");
+        manualRow.put("schedule", "Manual");
+        check(TaskSpec.fromRow(manualRow).schedule.equals(Schedule.MANUAL), "Manual schedule parses");
+
+        // Delay: parsed like the other numbers, clamped to 0..300,
+        // absent means 0.
+        check(TaskSpec.fromRow(runRow).delaySeconds == 0, "delay defaults to 0 when absent");
+        Map<String, Object> delayRow = new HashMap<String, Object>(runRow);
+        delayRow.put("delaySeconds", "20");
+        check(TaskSpec.fromRow(delayRow).delaySeconds == 20, "delay parses from a string");
+        delayRow.put("delaySeconds", Integer.valueOf(999));
+        check(TaskSpec.fromRow(delayRow).delaySeconds == TaskSpec.MAX_DELAY_SECONDS, "delay clamped to 300");
+        delayRow.put("delaySeconds", Integer.valueOf(-5));
+        check(TaskSpec.fromRow(delayRow).delaySeconds == 0, "delay clamped to 0");
+
+        // A delay edit must not move the task's anchor or identity:
+        // like backend and timeout, it stays out of the hash and the
+        // schedule key.
+        Map<String, Object> delayEdit = new HashMap<String, Object>(row);
+        delayEdit.put("delaySeconds", Integer.valueOf(120));
+        TaskSpec delayed = TaskSpec.fromRow(delayEdit);
+        check(delayed.scheduleKey().equals(spec.scheduleKey()), "delay edit keeps the schedule key");
+        check(delayed.hash().equals(spec.hash()), "delay edit keeps the task hash");
+
         // Schedule keys: a schedule edit changes the key (fresh anchor),
         // an unrelated edit does not.
-        String baseKey = spec.scheduleKey(spec.schedule);
+        String baseKey = spec.scheduleKey();
         Map<String, Object> backendEdit = new HashMap<String, Object>(row);
         backendEdit.put("backend", "Root");
-        check(TaskSpec.fromRow(backendEdit).scheduleKey(spec.schedule).equals(baseKey),
+        check(TaskSpec.fromRow(backendEdit).scheduleKey().equals(baseKey),
                 "backend edit keeps the schedule key");
         Map<String, Object> timeEdit = new HashMap<String, Object>(row);
         timeEdit.put("timeOfDay", "08:05");
-        check(!TaskSpec.fromRow(timeEdit).scheduleKey(spec.schedule).equals(baseKey),
+        check(!TaskSpec.fromRow(timeEdit).scheduleKey().equals(baseKey),
                 "time-of-day edit changes the schedule key");
         Map<String, Object> intervalEdit = new HashMap<String, Object>(row);
         intervalEdit.put("intervalMinutes", Double.valueOf(90.0));
-        check(!TaskSpec.fromRow(intervalEdit).scheduleKey(spec.schedule).equals(baseKey),
+        check(!TaskSpec.fromRow(intervalEdit).scheduleKey().equals(baseKey),
                 "interval edit changes the schedule key");
     }
 
@@ -188,7 +230,7 @@ public final class TaskSchedulerTest {
 
         // Interval: anchored on the last run.
         TaskSpec hourly = task("Interval", 60, "", "Monday", Schedule.CATCH_UP, 0);
-        String key = hourly.scheduleKey(Schedule.INTERVAL);
+        String key = hourly.scheduleKey();
         check(Schedule.nextDueMs(hourly, Schedule.INTERVAL, key, Long.valueOf(t0), t0 + 59 * 60000L, UTC) == t0 + 60 * 60000L,
                 "interval next due is anchor + period");
         check(!Schedule.isDue(hourly, Schedule.INTERVAL, key, Long.valueOf(t0), t0 + 59 * 60000L, UTC), "interval not due early");
@@ -197,7 +239,7 @@ public final class TaskSchedulerTest {
 
         // Interval jitter: within [0, jitter], and stable for one occurrence.
         TaskSpec jittery = task("Interval", 60, "", "Monday", Schedule.CATCH_UP, 30);
-        String jitterKey = jittery.scheduleKey(Schedule.INTERVAL);
+        String jitterKey = jittery.scheduleKey();
         long jitterDue = Schedule.nextDueMs(jittery, Schedule.INTERVAL, jitterKey, Long.valueOf(t0), t0, UTC);
         check(jitterDue >= t0 + 60 * 60000L && jitterDue <= t0 + 90 * 60000L,
                 "jittered due within [base, base+jitter], got offset " + (jitterDue - t0 - 3600000L) / 60000L + " min");
@@ -207,7 +249,7 @@ public final class TaskSchedulerTest {
         // Interval Skip: a whole period late abandons the occurrence; the
         // following occurrence becomes next due (the plugin resyncs).
         TaskSpec skipHourly = task("Interval", 60, "", "Monday", Schedule.SKIP, 0);
-        String skipKey = skipHourly.scheduleKey(Schedule.INTERVAL);
+        String skipKey = skipHourly.scheduleKey();
         check(Schedule.nextDueMs(skipHourly, Schedule.INTERVAL, skipKey, Long.valueOf(t0), t0 + 130 * 60000L, UTC) == t0 + 120 * 60000L,
                 "skip interval reports the following occurrence");
         check(Schedule.isDue(skipHourly, Schedule.INTERVAL, skipKey, Long.valueOf(t0), t0 + 90 * 60000L, UTC),
@@ -215,7 +257,7 @@ public final class TaskSchedulerTest {
 
         // Daily: before and after the time of day.
         TaskSpec daily = task("Daily", 60, "02:30", "Monday", Schedule.CATCH_UP, 0);
-        String dailyKey = daily.scheduleKey(Schedule.DAILY);
+        String dailyKey = daily.scheduleKey();
         long jan14run = at(UTC, 2026, 1, 14, 2, 30);
         check(Schedule.nextDueMs(daily, Schedule.DAILY, dailyKey, Long.valueOf(jan14run), at(UTC, 2026, 1, 15, 1, 0), UTC)
                 == at(UTC, 2026, 1, 15, 2, 30), "daily next due is today's time");
@@ -226,7 +268,7 @@ public final class TaskSchedulerTest {
 
         // Daily Skip: only inside the skip window.
         TaskSpec dailySkip = task("Daily", 60, "02:30", "Monday", Schedule.SKIP, 0);
-        String dailySkipKey = dailySkip.scheduleKey(Schedule.DAILY);
+        String dailySkipKey = dailySkip.scheduleKey();
         check(Schedule.isDue(dailySkip, Schedule.DAILY, dailySkipKey, Long.valueOf(jan14run), at(UTC, 2026, 1, 15, 2, 40), UTC),
                 "daily skip due inside the window");
         check(!Schedule.isDue(dailySkip, Schedule.DAILY, dailySkipKey, Long.valueOf(jan14run), at(UTC, 2026, 1, 15, 3, 0), UTC),
@@ -236,13 +278,24 @@ public final class TaskSchedulerTest {
 
         // Daily with no valid time never fires.
         TaskSpec dailyNoTime = task("Daily", 60, "", "Monday", Schedule.CATCH_UP, 0);
-        check(Schedule.nextDueMs(dailyNoTime, Schedule.DAILY, dailyNoTime.scheduleKey(Schedule.DAILY), null, t0, UTC) == -1,
+        check(Schedule.nextDueMs(dailyNoTime, Schedule.DAILY, dailyNoTime.scheduleKey(), null, t0, UTC) == -1,
                 "daily without a time never fires");
+
+        // Manual never fires on its own: not scheduled, never due,
+        // no next due time — with or without an anchor.
+        TaskSpec manual = task("Manual", 60, "02:30", "Monday", Schedule.CATCH_UP, 0);
+        check(!Schedule.isScheduled(Schedule.MANUAL), "Manual is not a scheduled type");
+        check(Schedule.nextDueMs(manual, Schedule.MANUAL, manual.scheduleKey(), null, t0, UTC) == -1,
+                "Manual has no next due time");
+        check(Schedule.nextDueMs(manual, Schedule.MANUAL, manual.scheduleKey(), Long.valueOf(t0), t0 + 86400000L, UTC) == -1,
+                "Manual has no next due time even with an anchor");
+        check(!Schedule.isDue(manual, Schedule.MANUAL, manual.scheduleKey(), null, t0, UTC),
+                "Manual is never due");
 
         // Weekly: same weekday, and the wrap to next week after a run.
         // 2026-01-14 is a Wednesday.
         TaskSpec weekly = task("Weekly", 60, "09:00", "Wednesday", Schedule.CATCH_UP, 0);
-        String weeklyKey = weekly.scheduleKey(Schedule.WEEKLY);
+        String weeklyKey = weekly.scheduleKey();
         long jan7run = at(UTC, 2026, 1, 7, 9, 0);
         check(Schedule.nextDueMs(weekly, Schedule.WEEKLY, weeklyKey, Long.valueOf(jan7run), at(UTC, 2026, 1, 14, 8, 0), UTC)
                 == at(UTC, 2026, 1, 14, 9, 0), "weekly next due is this week's weekday");
@@ -254,7 +307,7 @@ public final class TaskSchedulerTest {
         // DST spring forward (2026-03-08, America/New_York): 02:30 does
         // not exist; Calendar resolves it forward to 03:30 EDT.
         TaskSpec dstDaily = task("Daily", 60, "02:30", "Monday", Schedule.CATCH_UP, 0);
-        String dstKey = dstDaily.scheduleKey(Schedule.DAILY);
+        String dstKey = dstDaily.scheduleKey();
         long dstDue = Schedule.nextDueMs(dstDaily, Schedule.DAILY, dstKey,
                 Long.valueOf(at(NEW_YORK, 2026, 3, 7, 2, 30)), at(NEW_YORK, 2026, 3, 7, 12, 0), NEW_YORK);
         Calendar dstCal = Calendar.getInstance(NEW_YORK);
@@ -267,7 +320,7 @@ public final class TaskSchedulerTest {
         // resolves the ambiguous time to the second (standard-time,
         // EST, UTC-5) occurrence, which is the documented behaviour.
         TaskSpec fallDaily = task("Daily", 60, "01:30", "Monday", Schedule.CATCH_UP, 0);
-        String fallKey = fallDaily.scheduleKey(Schedule.DAILY);
+        String fallKey = fallDaily.scheduleKey();
         long fallDue = Schedule.nextDueMs(fallDaily, Schedule.DAILY, fallKey,
                 Long.valueOf(at(NEW_YORK, 2026, 10, 31, 1, 30)), at(NEW_YORK, 2026, 10, 31, 12, 0), NEW_YORK);
         Calendar fallCal = Calendar.getInstance(NEW_YORK);
@@ -276,6 +329,105 @@ public final class TaskSchedulerTest {
                 && fallCal.get(Calendar.MINUTE) == 30 && NEW_YORK.getOffset(fallDue) == -5L * 3600L * 1000L,
                 "fall-back daily picks the standard-time 01:30 (EST), got " + fallCal.getTime());
     }
+    private static Map<String, Object> legacyRow(String schedule, String backend) {
+        Map<String, Object> row = new HashMap<String, Object>();
+        row.put("label", "Legacy");
+        row.put("executable", "/system/bin/id");
+        row.put("args", "");
+        if (schedule != null) row.put("schedule", schedule);
+        if (backend != null) row.put("backend", backend);
+        return row;
+    }
+
+    private static void migrationTests() {
+        // A full 1.3 install: all three plugin-level settings present,
+        // rows storing Default, no per-task delay anywhere.
+        Map<String, Object> settings = new HashMap<String, Object>();
+        settings.put("defaultSchedule", "On Kiosk start");
+        settings.put("defaultBackend", "Shizuku");
+        settings.put("startupDelaySeconds", Double.valueOf(30.0));
+        Map<String, Object> defaulted = legacyRow("Default", "Default");
+        Map<String, Object> interval = legacyRow("Interval", "Root");
+        interval.put("intervalMinutes", Integer.valueOf(60));
+        Map<String, Object> boot = legacyRow("On boot", "Auto");
+        settings.put("tasks", Arrays.asList(defaulted, interval, boot));
+        LegacyMigration.Result result = LegacyMigration.resolveRows(settings);
+        check(result.changed, "legacy settings are flagged for write-back");
+        check(result.rows.size() == 3, "migration keeps every row");
+        TaskSpec resolvedDefault = TaskSpec.fromRow(result.rows.get(0));
+        check(resolvedDefault.schedule.equals(Schedule.ON_START), "Default schedule takes the old defaultSchedule");
+        check(resolvedDefault.backend.equals("Shizuku"), "Default backend takes the old defaultBackend");
+        check(resolvedDefault.delaySeconds == 30, "On Kiosk start row takes the old startup delay");
+        TaskSpec resolvedInterval = TaskSpec.fromRow(result.rows.get(1));
+        check(resolvedInterval.schedule.equals(Schedule.INTERVAL) && resolvedInterval.backend.equals("Root"),
+                "explicit schedule and backend pass through");
+        check(resolvedInterval.delaySeconds == 0, "scheduled rows get no startup delay");
+        check(TaskSpec.fromRow(result.rows.get(2)).delaySeconds == 30, "On boot row takes the old startup delay");
+        check(!defaulted.containsKey("delaySeconds") && "Default".equals(defaulted.get("schedule")),
+                "migration does not mutate the stored rows");
+
+        // Loop safety: resolving the migrated rows again — even with
+        // the old plugin-level keys still in the map — changes nothing.
+        Map<String, Object> again = new HashMap<String, Object>(settings);
+        again.put("tasks", result.rows);
+        check(!LegacyMigration.resolveRows(again).changed, "migrated rows do not migrate twice");
+        Map<String, Object> stripped = new HashMap<String, Object>();
+        stripped.put("tasks", result.rows);
+        check(!LegacyMigration.resolveRows(stripped).changed, "migrated rows without legacy keys stay put");
+
+        // Garbage plugin-level values fall back: On boot / Auto / 0.
+        Map<String, Object> garbage = new HashMap<String, Object>();
+        garbage.put("defaultSchedule", "Hourly");
+        garbage.put("defaultBackend", "Nope");
+        garbage.put("startupDelaySeconds", "abc");
+        garbage.put("tasks", Arrays.asList(legacyRow("Default", "Default")));
+        TaskSpec garbageSpec = TaskSpec.fromRow(LegacyMigration.resolveRows(garbage).rows.get(0));
+        check(garbageSpec.schedule.equals(Schedule.ON_BOOT), "garbage defaultSchedule falls back to On boot");
+        check(garbageSpec.backend.equals("Auto"), "garbage defaultBackend falls back to Auto");
+        check(garbageSpec.delaySeconds == 0, "garbage startup delay falls back to 0");
+
+        // The old startup delay is clamped to the per-task delay range.
+        Map<String, Object> bigDelay = new HashMap<String, Object>();
+        bigDelay.put("startupDelaySeconds", Double.valueOf(9999.0));
+        bigDelay.put("tasks", Arrays.asList(legacyRow("On boot", "Auto")));
+        check(TaskSpec.fromRow(LegacyMigration.resolveRows(bigDelay).rows.get(0)).delaySeconds
+                == TaskSpec.MAX_DELAY_SECONDS, "startup delay clamped to 300 on migration");
+        Map<String, Object> negativeDelay = new HashMap<String, Object>();
+        negativeDelay.put("startupDelaySeconds", Integer.valueOf(-5));
+        negativeDelay.put("tasks", Arrays.asList(legacyRow("On boot", "Auto")));
+        check(TaskSpec.fromRow(LegacyMigration.resolveRows(negativeDelay).rows.get(0)).delaySeconds == 0,
+                "negative startup delay becomes 0 on migration");
+
+        // No plugin-level keys at all (Kiosk Satellite dropped them):
+        // the row markers alone trigger migration, with fallbacks.
+        Map<String, Object> markersOnly = new HashMap<String, Object>();
+        markersOnly.put("tasks", Arrays.asList(legacyRow("Default", "Default")));
+        LegacyMigration.Result markersResult = LegacyMigration.resolveRows(markersOnly);
+        check(markersResult.changed, "row markers alone trigger migration");
+        TaskSpec markersSpec = TaskSpec.fromRow(markersResult.rows.get(0));
+        check(markersSpec.schedule.equals(Schedule.ON_BOOT) && markersSpec.backend.equals("Auto")
+                && markersSpec.delaySeconds == 0, "markers-only migration uses the fallbacks");
+
+        // A resolved schedule decides the delay even when it comes
+        // from the old default: Default -> Daily means no startup delay.
+        Map<String, Object> dailyDefault = new HashMap<String, Object>();
+        dailyDefault.put("defaultSchedule", "Daily");
+        dailyDefault.put("startupDelaySeconds", Integer.valueOf(25));
+        dailyDefault.put("tasks", Arrays.asList(legacyRow("Default", "Auto")));
+        TaskSpec dailySpec = TaskSpec.fromRow(LegacyMigration.resolveRows(dailyDefault).rows.get(0));
+        check(dailySpec.schedule.equals(Schedule.DAILY) && dailySpec.delaySeconds == 0,
+                "Default resolving to Daily gets no startup delay");
+
+        // Current settings (no legacy keys, no Default rows) are not
+        // touched — in particular a missing delaySeconds alone does
+        // not trigger a write-back.
+        Map<String, Object> current = new HashMap<String, Object>();
+        current.put("tasks", Arrays.asList(legacyRow("Weekly", "Root")));
+        LegacyMigration.Result currentResult = LegacyMigration.resolveRows(current);
+        check(!currentResult.changed, "current settings are not migrated");
+        check(!currentResult.rows.get(0).containsKey("delaySeconds"), "no delay is injected without legacy markers");
+    }
+
     private static TaskSpec task(String schedule, int interval, String timeOfDay, String weekday, String missedPolicy, int jitter) {
         Map<String, Object> row = new HashMap<String, Object>();
         row.put("label", "Task");

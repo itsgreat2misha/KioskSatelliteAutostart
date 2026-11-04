@@ -10,13 +10,6 @@
             "title": "Run tasks now"
         },
         {
-            "description": "Check whether root (su) and Shizuku are available on this kiosk.",
-            "group": "Scheduler",
-            "id": "probeBackends",
-            "label": "Check",
-            "title": "Check backends"
-        },
-        {
             "description": "Clears Once per boot tracking and scheduled tasks' anchors, so boot tasks run again on the next Kiosk start and scheduled tasks re-anchor.",
             "group": "Advanced",
             "id": "clearSchedulerState",
@@ -34,12 +27,9 @@
             "title": "Run all scheduled tasks"
         }
     ],
-    "description": "Run commands you choose on boot, when Kiosk Satellite starts, or on a schedule (every so often, daily, or weekly), through root (su) or Shizuku. Scheduled runs are best-effort while Kiosk Satellite is running, with a catch-up option for missed runs.",
+    "description": "Run commands you choose on boot, when Kiosk Satellite starts, or on a schedule (every so often, daily, or weekly), through root (su) or Shizuku — or only when you run them yourself. Scheduled runs are best-effort while Kiosk Satellite is running, with a catch-up option for missed runs.",
     "entryClass": "taskscheduler.TaskSchedulerPlugin",
     "groups": [
-        {
-            "title": "Scheduler"
-        },
         {
             "readings": [
                 "text_sensor.status",
@@ -63,47 +53,6 @@
     "schemaVersion": 1,
     "settings": [
         {
-            "default": "Auto",
-            "description": "Auto uses root when su works, otherwise Shizuku. A task can override this.",
-            "group": "Scheduler",
-            "key": "defaultBackend",
-            "options": [
-                "Auto",
-                "Root",
-                "Shizuku"
-            ],
-            "title": "Default backend",
-            "type": "select"
-        },
-        {
-            "default": "On boot",
-            "description": "The schedule used by tasks set to Default. On boot runs a task once per boot; On Kiosk start runs it at every Kiosk start; Interval, Daily and Weekly run it on that schedule.",
-            "group": "Scheduler",
-            "key": "defaultSchedule",
-            "options": [
-                "On boot",
-                "On Kiosk start",
-                "Interval",
-                "Daily",
-                "Weekly"
-            ],
-            "title": "Default schedule",
-            "type": "select"
-        },
-        {
-            "default": 0,
-            "description": "Wait this long after Kiosk starts before running the start/boot pass. Manual runs and scheduled runs ignore it.",
-            "group": "Scheduler",
-            "input": "field",
-            "key": "startupDelaySeconds",
-            "max": 60,
-            "min": 0,
-            "step": 1,
-            "title": "Startup delay",
-            "type": "number",
-            "unit": "s"
-        },
-        {
             "addTitle": "Add task",
             "default": [],
             "fields": [
@@ -126,15 +75,15 @@
                     "type": "string"
                 },
                 {
-                    "default": "Default",
+                    "default": "On boot",
                     "key": "schedule",
                     "options": [
-                        "Default",
                         "On boot",
                         "On Kiosk start",
                         "Interval",
                         "Daily",
-                        "Weekly"
+                        "Weekly",
+                        "Manual"
                     ],
                     "title": "Schedule",
                     "type": "select"
@@ -155,7 +104,8 @@
                             "On boot",
                             "On Kiosk start",
                             "Daily",
-                            "Weekly"
+                            "Weekly",
+                            "Manual"
                         ]
                     }
                 },
@@ -169,7 +119,8 @@
                         "notEquals": [
                             "On boot",
                             "On Kiosk start",
-                            "Interval"
+                            "Interval",
+                            "Manual"
                         ]
                     }
                 },
@@ -193,7 +144,8 @@
                             "On boot",
                             "On Kiosk start",
                             "Interval",
-                            "Daily"
+                            "Daily",
+                            "Manual"
                         ]
                     }
                 },
@@ -210,7 +162,8 @@
                         "key": "schedule",
                         "notEquals": [
                             "On boot",
-                            "On Kiosk start"
+                            "On Kiosk start",
+                            "Manual"
                         ]
                     }
                 },
@@ -228,15 +181,32 @@
                         "key": "schedule",
                         "notEquals": [
                             "On boot",
-                            "On Kiosk start"
+                            "On Kiosk start",
+                            "Manual"
                         ]
                     }
                 },
                 {
-                    "default": "Default",
+                    "default": 0,
+                    "input": "field",
+                    "key": "delaySeconds",
+                    "max": 300,
+                    "min": 0,
+                    "step": 1,
+                    "title": "Delay",
+                    "type": "number",
+                    "unit": "s",
+                    "visibleWhen": {
+                        "key": "schedule",
+                        "notEquals": [
+                            "Manual"
+                        ]
+                    }
+                },
+                {
+                    "default": "Auto",
                     "key": "backend",
                     "options": [
-                        "Default",
                         "Auto",
                         "Root",
                         "Shizuku"
@@ -287,7 +257,7 @@
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "defaultBackend"
+                "key": "tasks"
             }
         },
         {
@@ -299,7 +269,7 @@
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "defaultBackend"
+                "key": "tasks"
             }
         },
         {
@@ -311,9 +281,9 @@
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "defaultBackend"
+                "key": "tasks"
             }
         }
     ],
-    "version": "1.3.2"
+    "version": "1.4.0"
 }
