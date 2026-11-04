@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-11-04
+
+### Fixed
+
+- The task list now shows each task's schedule type under its name
+  (for example "Weekly" or "On boot"). The composed schedule summary
+  added in 1.3.1 (the plugin-maintained `scheduleSummary` field) did
+  not render on device, so that mechanism was removed entirely.
+
+### Changed
+
+- The task editor now leads with **Executable** and **Arguments**;
+  the schedule type and its fields follow, then the backend, timeout
+  and enabled/run toggles.
+
 ## [1.3.1] - 2026-11-04
 
 ### Added

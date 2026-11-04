@@ -62,11 +62,9 @@ import me.jxl.kiosk.plugins.PluginHost;
  * policy, not at all) when the device sleeps or Kiosk is not
  * running. The Catch up once policy runs a missed task once at the
  * next opportunity.
- * <li>The task list shows each task's schedule under its name: the
- * manifest's row subtitle is the {@code scheduleSummary} row field,
- * a display-only value the plugin recomputes on every configure
- * (see {@link Schedule#summary}) and writes back only when it
- * changed, so the write never loops.
+ * <li>The task list shows each task's schedule type under its
+ * name: the manifest's row subtitle is the {@code schedule} row
+ * field itself, so there is nothing for the plugin to maintain.
  * <li>Failures never stop later tasks and never throw out of a
  * callback. Every result is logged, summarised in the plugin status
  * and published as text sensors.
@@ -206,9 +204,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         state = SchedulerState.parse(
                 TaskSpec.string(settings, "runState", ""),
                 TaskSpec.string(settings, "schedulerState", ""));
-        // start() goes through configure too, so the summaries are
-        // maintained on both paths.
-        syncScheduleSummaries();
         // Only when the worker already exists (a settings save while
         // the plugin is running). During start(), configure runs
         // before the worker is created, and the automatic pass, not
@@ -512,15 +507,10 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         }
     }
 
-    private String scheduleSummary(TaskSpec spec) {
-        return Schedule.summary(spec, config.effectiveSchedule(spec), "Default".equals(spec.schedule));
-    }
-
     /**
-     * The tasks list rebuilt from the parsed config, with each row's
-     * schedule summary recomputed. Whole-list write-backs (the Run
-     * toggle reset, the summary sync below) go through here so a
-     * rewrite never drops the plugin-maintained summary.
+     * The tasks list rebuilt from the parsed config. The one
+     * whole-list write-back (the Run toggle reset below) goes
+     * through here so a rewrite always carries the full parsed row.
      */
     private List<Map<String, Object>> taskRows(boolean resetRunFlags) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
@@ -533,7 +523,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             row.put("args", spec.args);
             row.put("backend", spec.backend);
             row.put("schedule", spec.schedule);
-            row.put("scheduleSummary", scheduleSummary(spec));
             row.put("intervalMinutes", Integer.valueOf(spec.intervalMinutes));
             row.put("timeOfDay", spec.timeOfDay);
             row.put("weekday", spec.weekday);
@@ -544,33 +533,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             rows.add(row);
         }
         return rows;
-    }
-
-    /**
-     * Keep each task row's stored schedule summary in step with its
-     * schedule fields, so the task list shows the schedule under the
-     * task's name. Writes the list back only when a summary is
-     * actually stale, so the configure the write-back itself triggers
-     * finds nothing to do and the loop stops.
-     */
-    private void syncScheduleSummaries() {
-        PluginHost snapshotHost = safeHost();
-        if (snapshotHost == null) return;
-        boolean stale = false;
-        for (int i = 0; i < config.tasks.size(); i++) {
-            TaskSpec spec = config.tasks.get(i);
-            if (!scheduleSummary(spec).equals(spec.scheduleSummary)) { stale = true; break; }
-        }
-        if (!stale) return;
-        try {
-            Map<String, Object> values = new HashMap<String, Object>();
-            values.put("tasks", taskRows(false));
-            snapshotHost.updateSettings(values);
-        } catch (RuntimeException e) {
-            logSafe("Could not update schedule summaries: " + e.getMessage());
-        } catch (LinkageError e) {
-            logSafe("Could not update schedule summaries: this Kiosk Satellite version cannot update list settings.");
-        }
     }
 
     private void resetRunToggles() {

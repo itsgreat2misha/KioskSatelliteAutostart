@@ -64,12 +64,12 @@ one-to-one: *Once per boot* becomes the **On boot** schedule and
 - **Startup delay** — seconds to wait after Kiosk starts before
   running the start/boot pass. Manual runs and scheduled runs
   ignore it.
-- **Tasks** — a list of up to 32. Each row has a label, an enabled
-  toggle, a schedule and its fields (below), an executable (absolute
-  path, for example `/system/bin/settings`), its arguments (one
-  string, split quote-aware, for example
-  `put system user_rotation 1`), a backend, and a timeout in seconds
-  (1–30).
+- **Tasks** — a list of up to 32. Each row starts with a label, an
+  executable (absolute path, for example `/system/bin/settings`) and
+  its arguments (one string, split quote-aware, for example
+  `put system user_rotation 1`), then its schedule and the schedule's
+  fields (below), a backend, a timeout in seconds (1–30), and an
+  enabled toggle.
 
 Each task's **schedule** is one of:
 
@@ -97,10 +97,9 @@ The task editor shows only the fields that apply to the schedule
 you picked: an **On boot** task, for example, has no interval, time
 of day or weekday fields. A task set to `Default` shows all of
 them, because its timing comes from the **Default schedule**
-setting above. In the task list, each task shows its schedule under
-its name (for example `Weekly on Friday at 5:00 PM`, or `Daily at
-5:00 PM (default)` for a task using the default schedule) instead
-of its executable path.
+setting above. In the task list, each task shows its schedule type
+under its name (for example `Weekly` or `On boot`) instead of its
+executable path.
 
 Buttons on the settings page:
 
