@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-11-04
+
+### Fixed
+
+- Root availability is no longer lost for the rest of the process
+  when the first probe finds no working `su`: only a working form
+  is cached, a failed probe is retried on later passes (at most
+  once a minute), and a root execution that fails because `su`
+  itself could not start drops the cached form so the next pass
+  re-probes. A root stack that starts just after Kiosk Satellite,
+  or comes back after a crash, is picked up without restarting
+  Kiosk. The automatic backend check also refreshes when
+  Shizuku's state changes.
+- The declared action is now titled **Run all enabled tasks
+  now**, matching what it does — every enabled task runs,
+  whatever its schedule. Its ID (`runNow`) is unchanged.
+- The **Scheduler state** description now says a task's last
+  *accounted* run (its last successful run, or a `Skip` resync),
+  which is what the anchor records.
+- Documentation corrected and completed after a full audit: the
+  examples no longer present `pm clear` as clearing an app's
+  cache (it wipes app data); editing a task's executable or
+  arguments is documented as starting its schedule fresh, like a
+  schedule edit; the backend-check description matches the
+  throttled, informational check; the plain-settings warning no
+  longer claims arguments appear in sensor output; task defaults,
+  the jitter range and the Shizuku argument limits are stated;
+  and the scheduling semantics a user needs to predict a run —
+  first run after adding or re-enabling a task, missed-run scope,
+  the `Skip` window, what a result contains — are spelled out.
+
+### Removed
+
+- The pre-1.4 settings migration (task rows storing `Default`,
+  resolved through the removed plugin-wide settings, with its
+  write-back) is gone. It was unreachable — a stored
+  configuration containing those settings or a `Default` row
+  cannot load since 1.4.2 — and current configurations parse
+  exactly as before.
+- The README no longer carries upgrade notes for pre-release
+  versions or for the Autostart plugin this one replaced during
+  development. The uninstall note remains: uninstalling deletes
+  the plugin's settings and tasks.
+
 ## [1.5.0] - 2026-11-04
 
 ### Added

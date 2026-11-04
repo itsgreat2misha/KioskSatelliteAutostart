@@ -67,13 +67,14 @@ import me.jxl.kiosk.plugins.PluginHost;
  * be staggered without a plugin-wide startup delay. Manual runs
  * ignore the delay, and Manual-schedule tasks never run
  * automatically at all — only via a manual run.
- * <li>Settings from before 1.4 — a row storing "Default" for its
- * schedule or backend, resolved through plugin-level settings that
- * no longer exist — are migrated once at configure time; see
- * {@link LegacyMigration}.
- * <li>Backend availability is checked automatically at start and
- * on settings saves (throttled, on a probe thread) and shown in
- * the plugin status; there is no Check backends button.
+ * <li>Backend availability is checked automatically at start, on
+ * settings saves and on Shizuku state changes (throttled, on a
+ * probe thread) and shown in the plugin status; there is no Check
+ * backends button. Execution never relies on that check: Shizuku
+ * state is read live for every task, and a root probe that finds
+ * no working su is retried on later passes (see
+ * {@link RootRunner}), so a backend that starts late or comes back
+ * after a crash is picked up without a restart.
  * <li>The Logging level setting gates verbose decision logging.
  * At Verbose, passes also log why each task ran, waited or was
  * skipped — due checks with the anchors they read, anchor saves,
@@ -103,7 +104,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     private volatile String currentSetupRun;
     private volatile boolean setupCancelled;
     private volatile String lastNextRunText = "";
-    private volatile boolean migrationPending;
     private volatile long lastProbeMs;
     private volatile long lastSummaryMs;
     private final Set<String> runOnceSeen = Collections.synchronizedSet(new HashSet<String>());
@@ -117,40 +117,36 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     static final class Config {
         final List<TaskSpec> tasks;
         final String sessionPid;
-        /** True when parsing migrated pre-1.4 settings; the resolved list should be written back once. */
-        final boolean migrated;
         /** True when the Logging level setting is Verbose; gates the decision-level log lines. */
         final boolean verbose;
 
-        Config(List<TaskSpec> tasks, String sessionPid, boolean migrated, boolean verbose) {
+        Config(List<TaskSpec> tasks, String sessionPid, boolean verbose) {
             this.tasks = tasks;
             this.sessionPid = sessionPid;
-            this.migrated = migrated;
             this.verbose = verbose;
         }
 
         static Config empty() {
-            return new Config(Collections.<TaskSpec>emptyList(), "", false, false);
+            return new Config(Collections.<TaskSpec>emptyList(), "", false);
         }
 
+        @SuppressWarnings("unchecked")
         static Config parse(Map<String, Object> settings) {
-            // Pre-1.4 rows can still store "Default" for their schedule
-            // or backend and carry no per-task delay; resolve them
-            // against the removed plugin-level settings first (see
-            // LegacyMigration). The resolved rows are used from here
-            // on whether or not the write-back in configure lands.
-            LegacyMigration.Result migration = LegacyMigration.resolveRows(settings);
             List<TaskSpec> tasks = new ArrayList<TaskSpec>();
-            for (int i = 0; i < migration.rows.size(); i++) {
-                TaskSpec spec = TaskSpec.fromRow(migration.rows.get(i));
-                if (spec.executable != null && spec.executable.length() > 0) tasks.add(spec);
+            Object raw = settings.get("tasks");
+            if (raw instanceof List) {
+                for (Object row : (List<?>) raw) {
+                    if (!(row instanceof Map)) continue;
+                    TaskSpec spec = TaskSpec.fromRow((Map<String, Object>) row);
+                    if (spec.executable != null && spec.executable.length() > 0) tasks.add(spec);
+                }
             }
             String pid = TaskSpec.string(settings, "sessionPid", "");
             // Logging level: anything but the exact "Verbose"
             // option — a missing or unknown value included — is
             // Informational.
             boolean verbose = "Verbose".equals(TaskSpec.string(settings, "loggingLevel", "Informational"));
-            return new Config(tasks, pid, migration.changed, verbose);
+            return new Config(tasks, pid, verbose);
         }
     }
 
@@ -174,7 +170,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             }
         });
         startSchedulerThread();
-        flushMigrationWriteBack();
         probeBackendsAutomatically();
         publishSensors("Task Scheduler ready.", "No run yet.");
         // Automatic runs must happen on a Kiosk app start, not on a
@@ -220,7 +215,6 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     @Override
     public void configure(Map<String, Object> settings) {
         config = Config.parse(settings);
-        migrationPending = config.migrated;
         state = SchedulerState.parse(
                 TaskSpec.string(settings, "runState", ""),
                 TaskSpec.string(settings, "schedulerState", ""));
@@ -229,36 +223,9 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
         // before the worker is created, and the automatic pass, not
         // a one-shot toggle, owns that start.
         if (worker != null) {
-            flushMigrationWriteBack();
             scheduleRunOnce();
             probeBackendsAutomatically();
             wakeScheduler();
-        }
-    }
-
-    /**
-     * Write the migrated task list back once, so the stored rows
-     * carry their resolved schedule, backend and delay and the
-     * migration never runs again. Called from configure (settings
-     * saves) and from start (the upgrade path: configure ran before
-     * the worker existed). A failed write-back loses nothing — the
-     * in-memory config is already resolved, and the next start or
-     * save retries while the stored rows still show legacy markers.
-     */
-    private void flushMigrationWriteBack() {
-        if (!migrationPending) return;
-        PluginHost snapshotHost = safeHost();
-        if (snapshotHost == null) return;
-        migrationPending = false;
-        try {
-            Map<String, Object> values = new HashMap<String, Object>();
-            values.put("tasks", taskRows(false));
-            snapshotHost.updateSettings(values);
-            logSafe("Migrated tasks from a pre-1.4 install: schedule and backend are now set per task.");
-        } catch (RuntimeException e) {
-            logSafe("Could not write back migrated tasks: " + e.getMessage());
-        } catch (LinkageError e) {
-            logSafe("Could not write back migrated tasks: this Kiosk Satellite version cannot update list settings.");
         }
     }
 
@@ -270,6 +237,11 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
     @Override
     public void onEvent(String event, Map<String, Object> payload) {
         if ("shizuku.state".equals(event)) {
+            // Shizuku starting late or stopping later is exactly when
+            // the informational backend check must refresh; it is
+            // throttled, so a burst of state events cannot spawn a
+            // burst of probes.
+            probeBackendsAutomatically();
             if (Boolean.TRUE.equals(payload.get("granted")) && needsShizukuRetry) {
                 needsShizukuRetry = false;
                 scheduleAutomatic();
@@ -573,9 +545,9 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
 
     /**
      * The tasks list rebuilt from the parsed config. The whole-list
-     * write-backs (the Run toggle reset below and the one-time
-     * pre-1.4 migration) go through here so a rewrite always carries
-     * the full parsed row, every current field included.
+     * write-back (the Run toggle reset below) goes through here so a
+     * rewrite always carries the full parsed row, every current
+     * field included.
      */
     private List<Map<String, Object>> taskRows(boolean resetRunFlags) {
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
@@ -1026,7 +998,8 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
 
     /**
      * The backend check used to be a settings button; it now runs on
-     * its own at plugin start and on settings saves, on the probe
+     * its own at plugin start, on settings saves and on Shizuku
+     * state changes, on the probe
      * thread (probing spawns su, so it never runs on a callback
      * thread). Throttled to at most once a minute, so a burst of
      * saves cannot spawn a burst of probes. The result is always

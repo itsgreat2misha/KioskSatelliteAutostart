@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Check asset collection before the build writes a package."""
 import os
 import tempfile

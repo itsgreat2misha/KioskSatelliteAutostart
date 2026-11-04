@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Select an installed Android platform without assuming integer directory names."""
 import re
 from pathlib import Path

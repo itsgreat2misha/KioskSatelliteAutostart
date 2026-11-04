@@ -24,7 +24,7 @@
     "commands": [
         {
             "id": "runNow",
-            "title": "Run all scheduled tasks"
+            "title": "Run all enabled tasks now"
         }
     ],
     "description": "Run commands you choose on boot, when Kiosk Satellite starts, or on a schedule (every so often, daily, or weekly), through root (su) or Shizuku — or only when you run them yourself. Scheduled runs are best-effort while Kiosk Satellite is running, with a catch-up option for missed runs.",
@@ -286,7 +286,7 @@
         },
         {
             "default": "",
-            "description": "Managed by Task Scheduler. It records when each scheduled task last ran, so due times survive restarts. Use Clear scheduler state to reset it.",
+            "description": "Managed by Task Scheduler. It records when each scheduled task was last accounted for — its last successful run, or a Skip resync that moved it past a missed run — so due times survive restarts. Use Clear scheduler state to reset it.",
             "group": "Advanced",
             "key": "schedulerState",
             "title": "Scheduler state (managed by Task Scheduler)",
@@ -297,5 +297,5 @@
             }
         }
     ],
-    "version": "1.5.0"
+    "version": "1.5.1"
 }

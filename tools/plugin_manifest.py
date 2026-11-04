@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Prepare identical package and release manifests without editing source files."""
 import json
 import re

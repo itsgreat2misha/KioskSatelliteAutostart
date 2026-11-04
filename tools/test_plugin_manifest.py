@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Check release overrides, preservation of the development manifest, and its shape."""
 import json
 from pathlib import Path
@@ -37,7 +38,7 @@ class DevelopmentManifestShapeTest(unittest.TestCase):
         cls.manifest = json.loads(path.read_text())
 
     def test_version(self):
-        self.assertEqual(self.manifest['version'], '1.5.0')
+        self.assertEqual(self.manifest['version'], '1.5.1')
 
     def test_settings_order_and_anchor(self):
         settings = self.manifest['settings']

@@ -32,16 +32,66 @@ import java.util.concurrent.TimeUnit;
  * each form and caches the first form that reports uid 0. Commands
  * then run exactly once, through the cached form, so a command is
  * never executed twice because the first su form was wrong.
+ *
+ * <p>Only success is cached. A failed probe is retried at most once
+ * a minute, so a root stack that starts just after the plugin (or
+ * comes back after a crash) is picked up on a later pass instead of
+ * root being treated as unavailable until the process restarts. If
+ * a root execution itself fails at the spawn level — su could not
+ * be started at all — the cached form is dropped, so the next pass
+ * re-probes rather than trusting a form that stopped working.
  */
 public final class RootRunner {
     static final int OUTPUT_CAP = 32768;
 
     private static final String FORM_SU0 = "su0";
     private static final String FORM_SHELL = "suShell";
-    private static final String FORM_NONE = "none";
 
-    /** Cached su form for this session: FORM_SU0, FORM_SHELL, FORM_NONE, or null (unknown). */
+    /** How long a failed probe stands before a later pass may probe again. */
+    static final long NEGATIVE_RETRY_MS = 60000L;
+
+    /** Cached working su form for this session: FORM_SU0, FORM_SHELL, or null (none proven yet). */
     private static volatile String rootForm = null;
+
+    /** When the last probe found no working form, or 0 when no probe has failed. */
+    private static volatile long lastNegativeProbeMs = 0;
+
+    /** Runs one su command and reports its outcome; the seam tests use to drive probe/run without a real su. */
+    interface CommandRunner {
+        Result run(List<String> command, int timeoutSeconds);
+    }
+
+    private static final CommandRunner REAL_RUNNER = new CommandRunner() {
+        public Result run(List<String> command, int timeoutSeconds) {
+            return runProcess(command, timeoutSeconds);
+        }
+    };
+
+    private static volatile CommandRunner commandRunner = REAL_RUNNER;
+
+    /** Current time in epoch millis; the seam tests use to control the negative-probe retry window. */
+    interface Ticker {
+        long nowMs();
+    }
+
+    private static final Ticker SYSTEM_TICKER = new Ticker() {
+        public long nowMs() { return System.currentTimeMillis(); }
+    };
+
+    private static volatile Ticker ticker = SYSTEM_TICKER;
+
+    static void setCommandRunnerForTests(CommandRunner runner) {
+        commandRunner = runner == null ? REAL_RUNNER : runner;
+    }
+
+    static void setTickerForTests(Ticker testTicker) {
+        ticker = testTicker == null ? SYSTEM_TICKER : testTicker;
+    }
+
+    static void resetCacheForTests() {
+        rootForm = null;
+        lastNegativeProbeMs = 0;
+    }
 
     private RootRunner() {}
 
@@ -72,28 +122,42 @@ public final class RootRunner {
 
     /** Run argv as root. Never throws for a failed command; it returns it. */
     public static Result run(List<String> argv, int timeoutSeconds) {
-        if (rootForm == null) probe();
-        if (FORM_NONE.equals(rootForm)) {
+        if (rootForm == null && !probe()) {
             return Result.failure("Root is unavailable: su did not report uid 0 with either su 0 or su -c");
         }
         List<String> command = FORM_SU0.equals(rootForm) ? su0Command(argv) : suShellCommand(argv);
-        return runProcess(command, timeoutSeconds);
+        Result result = commandRunner.run(command, timeoutSeconds);
+        if (result.error != null && result.error.length() > 0) {
+            // The su form itself failed — it could not be started, or
+            // reported itself unavailable — rather than the command
+            // running and exiting nonzero. Drop the cached form so
+            // the next pass re-probes instead of trusting it.
+            rootForm = null;
+        }
+        return result;
     }
 
-    /** True when su runs and reports uid 0, through either form. Caches the working form. */
+    /**
+     * True when su runs and reports uid 0, through either form. A
+     * working form is cached for the session; a failed probe is not —
+     * it is retried at most once per {@link #NEGATIVE_RETRY_MS}, so a
+     * root stack that appears later is picked up on a later pass.
+     */
     public static synchronized boolean probe() {
-        if (rootForm != null) return !FORM_NONE.equals(rootForm);
-        Result su0 = runProcess(su0Command(java.util.Arrays.asList("/system/bin/id")), 5);
+        if (rootForm != null) return true;
+        long now = ticker.nowMs();
+        if (lastNegativeProbeMs != 0 && now - lastNegativeProbeMs < NEGATIVE_RETRY_MS) return false;
+        Result su0 = commandRunner.run(su0Command(java.util.Arrays.asList("/system/bin/id")), 5);
         if (su0.succeeded() && su0.output.contains("uid=0")) {
             rootForm = FORM_SU0;
             return true;
         }
-        Result shell = runProcess(suShellCommand(java.util.Arrays.asList("/system/bin/id")), 5);
+        Result shell = commandRunner.run(suShellCommand(java.util.Arrays.asList("/system/bin/id")), 5);
         if (shell.succeeded() && shell.output.contains("uid=0")) {
             rootForm = FORM_SHELL;
             return true;
         }
-        rootForm = FORM_NONE;
+        lastNegativeProbeMs = now;
         return false;
     }
 
