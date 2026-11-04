@@ -43,25 +43,30 @@ from ZIP** accepts the ZIP built by `python3 tools/build.py`.
 To upgrade, install the newer release the same way; your tasks
 and settings are kept. Uninstalling the plugin deletes its settings,
 including all saved tasks, so copy anything you want to keep
-before you uninstall.
+before you uninstall. The one exception is 1.4.2 — see the next
+section.
 
-### Coming from 1.3.x?
+### Coming from 1.3.x–1.4.1?
 
-Schedule and backend are per-task settings now. The upgrade
-migrates your tasks automatically the first time the new version
-starts: a task that was set to `Default` takes the old **Default
-schedule** / **Default backend** value, and the old **Startup
-delay** becomes the **Delay** of your **On boot** and **On Kiosk
-start** tasks. Nothing needs re-entering.
+Schedule and backend are per-task settings now, and the
+plugin-wide **Default backend**, **Default schedule** and
+**Startup delay** settings are gone for good. Versions 1.4.0 and
+1.4.1 migrated tasks automatically on the first start: a task
+that was set to `Default` took the old **Default schedule** /
+**Default backend** value, and the old **Startup delay** became
+the **Delay** of **On boot** and **On Kiosk start** tasks.
 
-The plugin-wide **Default backend**, **Default schedule** and
-**Startup delay** settings are still declared in this release:
+1.4.2 removes the legacy settings and the `Default` options, and
+it cannot load a configuration stored by an earlier version:
 Kiosk Satellite validates stored settings against the plugin
-before it starts, and 1.3.x installs store those settings (and
-tasks set to `Default`), so they have to stay declared for the
-upgrade to load at all. They no longer do anything — only the
-one-time migration reads them — and they will be removed in a
-later release.
+before it starts, and a configuration from 1.3.x–1.4.1 still
+contains the removed settings (and may contain tasks set to
+`Default`). Upgrading to 1.4.2 is therefore a clean install:
+note your tasks, remove the plugin, install 1.4.2 and re-enter
+the tasks. When you re-enter them, set each task's schedule and
+backend directly — the values `Default` stood for — and give
+**On boot** and **On Kiosk start** tasks the **Delay** you
+previously had as **Startup delay**, if any.
 
 ### Coming from Autostart?
 

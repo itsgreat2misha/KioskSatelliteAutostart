@@ -31,9 +31,6 @@
     "entryClass": "taskscheduler.TaskSchedulerPlugin",
     "groups": [
         {
-            "title": "Scheduler"
-        },
-        {
             "readings": [
                 "text_sensor.status",
                 "text_sensor.last_run",
@@ -55,47 +52,6 @@
     "name": "Task Scheduler",
     "schemaVersion": 1,
     "settings": [
-        {
-            "default": "Auto",
-            "description": "Auto uses root when su works, otherwise Shizuku. A task can override this.",
-            "group": "Scheduler",
-            "key": "defaultBackend",
-            "options": [
-                "Auto",
-                "Root",
-                "Shizuku"
-            ],
-            "title": "Default backend",
-            "type": "select"
-        },
-        {
-            "default": "On boot",
-            "description": "The schedule used by tasks set to Default. On boot runs a task once per boot; On Kiosk start runs it at every Kiosk start; Interval, Daily and Weekly run it on that schedule.",
-            "group": "Scheduler",
-            "key": "defaultSchedule",
-            "options": [
-                "On boot",
-                "On Kiosk start",
-                "Interval",
-                "Daily",
-                "Weekly"
-            ],
-            "title": "Default schedule",
-            "type": "select"
-        },
-        {
-            "default": 0,
-            "description": "Wait this long after Kiosk starts before running the start/boot pass. Manual runs and scheduled runs ignore it.",
-            "group": "Scheduler",
-            "input": "field",
-            "key": "startupDelaySeconds",
-            "max": 60,
-            "min": 0,
-            "step": 1,
-            "title": "Startup delay",
-            "type": "number",
-            "unit": "s"
-        },
         {
             "addTitle": "Add task",
             "default": [],
@@ -122,7 +78,6 @@
                     "default": "On boot",
                     "key": "schedule",
                     "options": [
-                        "Default",
                         "On boot",
                         "On Kiosk start",
                         "Interval",
@@ -252,7 +207,6 @@
                     "default": "Auto",
                     "key": "backend",
                     "options": [
-                        "Default",
                         "Auto",
                         "Root",
                         "Shizuku"
@@ -296,6 +250,14 @@
         },
         {
             "default": "",
+            "description": "Managed by Task Scheduler. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run start/boot tasks again.",
+            "group": "Advanced",
+            "key": "sessionPid",
+            "title": "Session process id (managed by Task Scheduler)",
+            "type": "string"
+        },
+        {
+            "default": "",
             "description": "Managed by Task Scheduler. It is hidden because editing it by hand is not needed; use Clear scheduler state instead.",
             "group": "Advanced",
             "key": "runState",
@@ -303,7 +265,7 @@
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "defaultBackend"
+                "key": "sessionPid"
             }
         },
         {
@@ -315,21 +277,9 @@
             "type": "string",
             "visibleWhen": {
                 "equals": "__never__",
-                "key": "defaultBackend"
-            }
-        },
-        {
-            "default": "",
-            "description": "Managed by Task Scheduler. It records the Kiosk process id of the last start, so a plugin session restart in the same process does not run start/boot tasks again.",
-            "group": "Advanced",
-            "key": "sessionPid",
-            "title": "Session process id (managed by Task Scheduler)",
-            "type": "string",
-            "visibleWhen": {
-                "equals": "__never__",
-                "key": "defaultBackend"
+                "key": "sessionPid"
             }
         }
     ],
-    "version": "1.4.1"
+    "version": "1.4.2"
 }
