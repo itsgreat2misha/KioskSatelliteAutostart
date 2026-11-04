@@ -146,6 +146,11 @@ public final class TaskSchedulerTest {
         check(badSpec.backend.equals("Default"), "unknown backend becomes Default");
         check(badSpec.schedule.equals("Default"), "unknown schedule becomes Default");
         check(badSpec.intervalMinutes == Schedule.MIN_INTERVAL_MINUTES, "interval clamped to minimum");
+        Map<String, Object> bigInterval = new HashMap<String, Object>();
+        bigInterval.put("executable", "/system/bin/id");
+        bigInterval.put("intervalMinutes", Double.valueOf(99999.0));
+        check(TaskSpec.fromRow(bigInterval).intervalMinutes == Schedule.MAX_INTERVAL_MINUTES,
+                "interval clamped to maximum");
         check(badSpec.timeOfDay.equals(""), "invalid time of day becomes empty");
         check(badSpec.weekday.equals("Monday"), "unknown weekday becomes Monday");
         check(badSpec.missedPolicy.equals(Schedule.CATCH_UP), "unknown missed policy becomes Catch up once");

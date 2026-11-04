@@ -382,10 +382,7 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 logSafe(spec.label + ": failed (" + result.summary() + ")" + outputSuffix(result));
                 // No hot loop: the next attempt is the occurrence
                 // after the one that just failed.
-                long failedDue = Schedule.nextDueMs(spec, effective, key, anchor, now, TimeZone.getDefault());
-                Long nextAnchor = Long.valueOf(failedDue >= 0 ? failedDue : now);
-                long retryAt = Schedule.nextDueMs(spec, effective, key, nextAnchor, now, TimeZone.getDefault());
-                failedUntil.put(key, Long.valueOf(retryAt >= 0 ? retryAt : now + 60000L));
+                failedUntil.put(key, Long.valueOf(retryAfterFailureMs(spec, effective, key, anchor, now)));
             }
         }
         if (context.shizukuFailure) needsShizukuRetry = true;
@@ -395,6 +392,20 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
             statusSafe(summary, false);
         }
         publishNextRun(config, state, System.currentTimeMillis());
+    }
+
+    /**
+     * In-memory backoff after a scheduled task fails: the epoch millis
+     * of the occurrence after the one that just failed, computed from
+     * the task's current anchor. Falls back to one minute from now when
+     * no next occurrence can be computed. Shared by runDuePass and the
+     * scheduled branch of runPass so both passes back off identically.
+     */
+    private long retryAfterFailureMs(TaskSpec spec, String effective, String key, Long anchor, long now) {
+        long failedDue = Schedule.nextDueMs(spec, effective, key, anchor, now, TimeZone.getDefault());
+        Long nextAnchor = Long.valueOf(failedDue >= 0 ? failedDue : now);
+        long retryAt = Schedule.nextDueMs(spec, effective, key, nextAnchor, now, TimeZone.getDefault());
+        return retryAt >= 0 ? retryAt : now + 60000L;
     }
 
     private void persistAnchors(Config snapshot, SchedulerState snapshotState) {
@@ -667,6 +678,19 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                 String key = spec.scheduleKey(effective);
                 if (!manual && scheduled) {
                     Long anchor = anchors.anchorMillis(key);
+                    if (Schedule.INTERVAL.equals(effective) && Schedule.SKIP.equals(spec.missedPolicy) && anchor != null) {
+                        long periodMs = spec.intervalMinutes * 60000L;
+                        long base = anchor.longValue() + periodMs;
+                        long dueAt = base + Schedule.jitterOffsetMs(spec, key, base);
+                        if (now >= dueAt + periodMs) {
+                            // Skip, a whole period late: abandon the
+                            // missed occurrences and re-anchor without
+                            // running (same resync as runDuePass).
+                            anchors = anchors.withAnchor(key, now);
+                            anchorsChanged = true;
+                            continue;
+                        }
+                    }
                     Long retry = failedUntil.get(key);
                     boolean due = Schedule.isDue(spec, effective, key, anchor, now, TimeZone.getDefault())
                             && (retry == null || now >= retry.longValue());
@@ -696,6 +720,12 @@ public final class TaskSchedulerPlugin implements KioskPlugin {
                     failed++;
                     lines.add(spec.label + ": failed (" + result.summary() + ")");
                     logSafe(spec.label + ": failed (" + result.summary() + ")" + outputSuffix(result));
+                    if (!manual && scheduled) {
+                        // Same backoff as runDuePass: a scheduled task
+                        // that fails here must not retry almost
+                        // immediately in a due pass.
+                        failedUntil.put(key, Long.valueOf(retryAfterFailureMs(spec, effective, key, anchors.anchorMillis(key), now)));
+                    }
                 }
                 if (!reportSetup(setupRun, "running", lines.get(lines.size() - 1))) break;
             }
