@@ -38,9 +38,9 @@ and add tasks.
 4. Enable **Task Scheduler** from its entry row, then open its
    settings and add tasks.
 
-This plugin is not yet listed in Community Plugins. Until it is
-listed, install it with the button above or manually; searching
-**Browse plugins** will not find it yet.
+This plugin is not yet listed in Community Plugins, so
+searching **Browse plugins** will not find it — install it
+with the button above or manually.
 
 For local testing only, **Plugin Manager > Developer Tools > Install
 from ZIP** accepts the ZIP built by `python3 tools/build.py`.
@@ -100,9 +100,8 @@ Scheduled (Interval/Daily/Weekly) tasks also have:
 - **Jitter** — optionally delay each scheduled run by a
   per-occurrence amount between 0 and this many minutes (0–120),
   so a fleet of kiosks does not all run the same task at the same
-  moment. The amount is fixed for a given occurrence — the same
-  every time that occurrence is evaluated — and the next-run time
-  the plugin reports already includes it.
+  moment. The amount is fixed for a given occurrence, and the
+  next-run time the plugin reports already includes it.
 
 Every task except a **Manual** one also has a **Delay**: an
 automatic run waits this many seconds (0–300) immediately before
@@ -113,8 +112,7 @@ The task editor shows only the fields that apply to the schedule
 you picked: an **On boot** task, for example, has no interval, time
 of day or weekday fields, and a **Manual** task shows none of the
 schedule fields at all. In the task list, each task shows its
-schedule type under its name (for example `Weekly` or `On boot`)
-instead of its executable path.
+schedule type under its name (for example `Weekly` or `On boot`).
 
 Buttons on the settings page, both in the **Advanced** section:
 
@@ -123,8 +121,9 @@ Buttons on the settings page, both in the **Advanced** section:
   boot and does not move a scheduled task's next run, so testing a
   task does not disturb its schedule.
 - **Clear scheduler state** — clears Once per boot tracking and
-  scheduled tasks' anchors, so boot tasks run again on the next
-  Kiosk start and scheduled tasks re-anchor.
+  the record of scheduled tasks' past runs, so boot tasks run
+  again on the next Kiosk start and scheduled tasks start their
+  schedules fresh.
 
 The **Advanced** section also holds the **Logging level**
 setting: `Informational` (the default) keeps the plugin log to
@@ -132,24 +131,22 @@ run results, while `Verbose` adds the scheduling decisions
 behind each pass — why a task ran, waited or was skipped, the
 anchors read and saved, backend probes and choices, and delay
 waits — for troubleshooting. It changes only the log, never
-what runs. The plugin-managed state settings live in the same
-section and stay hidden, as editing them by hand is not needed.
+what runs.
 
 Backend availability is checked automatically when Kiosk starts,
 when settings are saved and when Shizuku's state changes, and the
-result is always written to the plugin log — there is no button
-for it. It also appears in the plugin status at the top of the
-settings page, unless a run summary posted within the last
-minute is fresher. The check is informational and
-runs at most once a minute: running a task never waits for it.
+result is always written to the plugin log. It also appears in
+the plugin status at the top of the settings page, unless a run
+summary posted within the last minute is fresher. The check is
+informational and runs at most once a minute: running a task
+never waits for it.
 Shizuku's state is read live every time a task runs, and a root
 check that finds no working `su` is retried on later passes, so a
 backend that starts late or comes back after a crash is picked up
 without restarting Kiosk.
 
 To run a single task on its own, open its row, turn **Run now** on
-and save. It runs once, ignoring its schedule, without marking it
-as run for this boot or moving its next scheduled run. The toggle
+and save. It runs once, ignoring its schedule. The toggle
 is a one-shot request, not a mode: the plugin switches it back off
 as it takes the request, and the same request never runs twice.
 A disabled task does not run.
@@ -162,8 +159,8 @@ whatever its schedule — including **Manual**, **On boot** and
 
 ## How it works
 
-Tasks run on a background thread, one after another, in the order
-they appear in the task list. A task that hangs, crashes or
+Tasks run one after another, in the order they appear in the
+task list. A task that hangs, crashes or
 fails cannot stall the scheduler or crash the plugin, and a
 failed task does not stop later tasks — but that isolation
 covers the task process, not its effects: a command running
@@ -172,7 +169,7 @@ Satellite, or reboot the device, exactly as the trust model in
 [Security](#security) describes. Every result is logged, summarised in
 the plugin status and published as the `Task Scheduler status`,
 `Task Scheduler last run` and `Task Scheduler next run` text
-sensors. The plugin writes its results to Kiosk Satellite's log.
+sensors.
 
 A result is one line per task: `ok`, or `failed` with the reason —
 the exit code (for example `exit 1`), `timed out`, or why no
@@ -184,28 +181,27 @@ output, have the task write it to a file itself.
 Start and boot tasks run when the Kiosk app starts. Enabling the
 plugin alone does not run them; they run on the next Kiosk app
 start. Only successful start/boot runs are marked, so a failed boot
-task retries on the next Kiosk start. A failed *scheduled* task
-waits for its next scheduled time instead of retrying immediately.
+task retries on the next Kiosk start.
 
-A scheduler thread inside the plugin watches the scheduled tasks'
-due times and runs them when they come due. It remembers each
+The plugin watches the scheduled tasks' due times and runs
+them when they come due. It remembers each
 scheduled task's last accounted run — when it last ran
 successfully, or when a `Skip` resync moved it past a missed run —
-in a hidden plugin-managed setting, so due times survive Kiosk
-and plugin restarts. An interval task's next run is due one
-interval after its previous run finished; a failed scheduled run
-does not move that anchor, and the task waits for its next
-scheduled occurrence instead of retrying straight away. Editing
+so due times survive Kiosk and plugin restarts. An interval
+task's next run is due one interval after its previous run
+finished; a failed scheduled run does not move its next run,
+and the task waits for its next scheduled occurrence instead of
+retrying straight away. Editing
 a task's schedule (type, interval, time or weekday) **or its
 executable or arguments** starts that task's schedule fresh;
 other edits (label, backend, timeout, delay, jitter, missed-run
 policy, the enabled toggle) keep its place.
 
 A scheduled task that has never run is due at its next
-occurrence: for an interval task that is straight away; for a
-daily or weekly task, its most recent scheduled time — if that
-time has already passed, the missed-run policy decides, exactly
-as for any other missed run. The same applies when a task is
+occurrence. For a daily or weekly task that means its most
+recent scheduled time — if that time has already passed, the
+missed-run policy decides, exactly as for any other missed
+run. The same applies when a task is
 re-enabled: its place was kept while it was disabled, so any runs
 it missed are handled by the same policy.
 
@@ -214,8 +210,7 @@ Task Scheduler does not start Shizuku, and it does not substitute
 running when a Shizuku task runs — after a reboot, something else
 has to start Shizuku first. An automatic Shizuku task that runs
 before Shizuku is up fails for that pass, and the plugin retries
-it when Kiosk reports Shizuku ready. When shell syntax is
-genuinely needed, use `/system/bin/sh` with `-c` as the executable.
+it when Kiosk reports Shizuku ready.
 
 Check a task with **Run tasks now** before relying on it, and
 prefer idempotent tasks: settings, grants and launches are; toggles
@@ -272,9 +267,9 @@ Satellite (**Settings > Device > Shizuku**).
 
 ## Troubleshooting
 
-- **A task did not run at startup.** Enabling the plugin alone
-  does not run start/boot tasks; they run on the next Kiosk app
-  start. Test the task first with **Run tasks now**.
+- **A task did not run at startup.** Start/boot tasks run on
+  the next Kiosk app start after the plugin is enabled (see
+  How it works). Test the task first with **Run tasks now**.
 - **A scheduled task did not run at its time.** See the
   best-effort timing limitation below. Check the
   `Task Scheduler next run` sensor for when the plugin thinks the
@@ -283,10 +278,9 @@ Satellite (**Settings > Device > Shizuku**).
   time never runs.
 - **A backend is unavailable.** The plugin status at the top of
   the settings page reports whether root (`su`) and Shizuku are
-  available on this kiosk; it is checked automatically when Kiosk
-  starts, when settings are saved and when Shizuku's state
-  changes. The result is always in the plugin log; the status
-  shows it unless a run summary from the last minute is fresher.
+  available on this kiosk. The result is always in the plugin
+  log; the status shows it unless a run summary from the last
+  minute is fresher.
   For Shizuku tasks, make sure
   Shizuku is installed, running, and granted to Kiosk Satellite
   (**Settings > Device > Shizuku**) — see Limitations below.
@@ -300,11 +294,8 @@ Satellite (**Settings > Device > Shizuku**).
   with `-c` as the executable when shell syntax is genuinely
   needed.
 - **A task failed but later tasks still ran.** That is
-  expected: tasks run one after another on a background thread,
-  and a failed task does not stop later tasks. Every result
-  is logged and summarised in the plugin status and the
-  `Task Scheduler status` and `Task Scheduler last run` text
-  sensors.
+  expected: a failed task does not stop later tasks. Every
+  result is logged and summarised in the plugin status.
 - **You need more detail about why a task did or did not run.**
   Set **Logging level** to **Verbose** in the **Advanced**
   section and reproduce the run: the plugin's entries in Kiosk
@@ -313,13 +304,9 @@ Satellite (**Settings > Device > Shizuku**).
 
 ## Limitations
 
-- Tasks need either root or Shizuku (see Requirements). With
-  the `Auto` backend the plugin uses root when `su` works,
-  otherwise Shizuku; a task set to `Root` or `Shizuku` only
-  uses that backend.
-- The plugin does not start Shizuku itself, and it does not
-  substitute `su` when a task is set to Shizuku only. Shizuku
-  must already be running when the task runs.
+- Tasks need either root or Shizuku (see Requirements); a
+  task set to `Root` or `Shizuku` only uses that backend.
+- The plugin does not start Shizuku itself (see How it works).
 - **Scheduled runs are best-effort, not exact-time alarms.** The
   scheduler runs inside Kiosk Satellite's process, and plugins
   cannot use Android's alarm or job-scheduling APIs or hold the
@@ -329,10 +316,6 @@ Satellite (**Settings > Device > Shizuku**).
   not at all. Do not use scheduled tasks for anything where
   running late (or, with `Skip`, not running) would be a problem,
   such as alarms or time-critical actions.
-- **Missed runs are never replayed more than once.** With
-  `Catch up once`, a task whose time passed while Kiosk was off
-  runs a single time at the next opportunity, however many runs
-  were missed.
 - On the day daylight saving time ends, an ambiguous daily or
   weekly time (one that occurs twice) runs at its second,
   standard-time occurrence; a time inside the spring-forward gap
@@ -357,12 +340,10 @@ python3 tools/test.py
 python3 tools/build.py --android-platform 35
 ```
 
-The ZIP appears in `dist/`. To release: update the CHANGELOG,
-push a `v*` tag (for example `v1.5.1`), and the Release workflow
-tests and builds the plugin, creates the GitHub release for the
-tag — with the CHANGELOG section for that version as its notes
-when one exists — and attaches the ZIP, its checksum and the
-manifest, all uploaded by GitHub Actions.
+The ZIP appears in `dist/`. To release: update the CHANGELOG
+and push a `v*` tag (for example `v1.5.1`); the Release
+workflow tests and builds the plugin and creates the GitHub
+release for the tag.
 
 ## License
 
