@@ -47,13 +47,21 @@ before you uninstall.
 
 ### Coming from 1.3.x?
 
-Schedule and backend are per-task settings now; the plugin-wide
-**Default backend**, **Default schedule** and **Startup delay**
-settings are gone. The upgrade migrates your tasks automatically
-the first time the new version starts: a task that was set to
-`Default` takes the old **Default schedule** / **Default backend**
-value, and the old **Startup delay** becomes the **Delay** of your
-**On boot** and **On Kiosk start** tasks. Nothing needs re-entering.
+Schedule and backend are per-task settings now. The upgrade
+migrates your tasks automatically the first time the new version
+starts: a task that was set to `Default` takes the old **Default
+schedule** / **Default backend** value, and the old **Startup
+delay** becomes the **Delay** of your **On boot** and **On Kiosk
+start** tasks. Nothing needs re-entering.
+
+The plugin-wide **Default backend**, **Default schedule** and
+**Startup delay** settings are still declared in this release:
+Kiosk Satellite validates stored settings against the plugin
+before it starts, and 1.3.x installs store those settings (and
+tasks set to `Default`), so they have to stay declared for the
+upgrade to load at all. They no longer do anything — only the
+one-time migration reads them — and they will be removed in a
+later release.
 
 ### Coming from Autostart?
 
