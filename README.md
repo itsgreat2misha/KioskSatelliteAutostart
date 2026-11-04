@@ -137,8 +137,10 @@ section and stay hidden, as editing them by hand is not needed.
 
 Backend availability is checked automatically when Kiosk starts,
 when settings are saved and when Shizuku's state changes, and the
-result is shown in the plugin status at the top of the settings
-page — there is no button for it. The check is informational and
+result is always written to the plugin log — there is no button
+for it. It also appears in the plugin status at the top of the
+settings page, unless a run summary posted within the last
+minute is fresher. The check is informational and
 runs at most once a minute: running a task never waits for it.
 Shizuku's state is read live every time a task runs, and a root
 check that finds no working `su` is retried on later passes, so a
@@ -161,9 +163,13 @@ whatever its schedule — including **Manual**, **On boot** and
 ## How it works
 
 Tasks run on a background thread, one after another, in the order
-they appear in the task list. A long task cannot stall Kiosk, a
-crashing task process cannot take Kiosk down, and a failed task
-does not stop later tasks. Every result is logged, summarised in
+they appear in the task list. A task that hangs, crashes or
+fails cannot stall the scheduler or crash the plugin, and a
+failed task does not stop later tasks — but that isolation
+covers the task process, not its effects: a command running
+with root or Shizuku privileges can itself stop apps or Kiosk
+Satellite, or reboot the device, exactly as the trust model in
+[Security](#security) describes. Every result is logged, summarised in
 the plugin status and published as the `Task Scheduler status`,
 `Task Scheduler last run` and `Task Scheduler next run` text
 sensors. The plugin writes its results to Kiosk Satellite's log.
@@ -279,7 +285,9 @@ Satellite (**Settings > Device > Shizuku**).
   the settings page reports whether root (`su`) and Shizuku are
   available on this kiosk; it is checked automatically when Kiosk
   starts, when settings are saved and when Shizuku's state
-  changes. For Shizuku tasks, make sure
+  changes. The result is always in the plugin log; the status
+  shows it unless a run summary from the last minute is fresher.
+  For Shizuku tasks, make sure
   Shizuku is installed, running, and granted to Kiosk Satellite
   (**Settings > Device > Shizuku**) — see Limitations below.
 - **An `On boot` task was skipped.** Only successful
