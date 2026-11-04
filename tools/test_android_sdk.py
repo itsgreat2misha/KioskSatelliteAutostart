@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Regression coverage for platform names found on GitHub Actions runners."""
 from pathlib import Path
 import tempfile

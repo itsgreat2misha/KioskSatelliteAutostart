@@ -24,7 +24,6 @@ public final class TaskSchedulerTest {
         schedulerStateTests();
         taskSpecTests();
         scheduleTests();
-        migrationTests();
         configTests();
         loggingTests();
         System.out.println("TaskSchedulerTest: all checks passed");
@@ -54,6 +53,73 @@ public final class TaskSchedulerTest {
         List<String> suShell = RootRunner.suShellCommand(Arrays.asList("/system/bin/am", "start", "a b"));
         check(suShell.size() == 3 && suShell.get(0).equals("su") && suShell.get(1).equals("-c"), "su -c command: " + suShell);
         check(ArgParser.split(suShell.get(2)).equals(Arrays.asList("/system/bin/am", "start", "a b")), "su -c round-trip");
+        rootRunnerCacheTests();
+    }
+
+    /** Programmable RootRunner command seam: counts calls, returns the installed result. */
+    private static final class FakeSu implements RootRunner.CommandRunner {
+        int calls;
+        Result result = Result.failure("no su");
+        public Result run(List<String> command, int timeoutSeconds) {
+            calls++;
+            return result;
+        }
+    }
+
+    /** Mutable clock for RootRunner's negative-probe retry window. */
+    private static final class FakeTicker implements RootRunner.Ticker {
+        long now = 1000000L;
+        public long nowMs() { return now; }
+    }
+
+    private static void rootRunnerCacheTests() {
+        FakeSu su = new FakeSu();
+        FakeTicker ticker = new FakeTicker();
+        RootRunner.setCommandRunnerForTests(su);
+        RootRunner.setTickerForTests(ticker);
+        try {
+            RootRunner.resetCacheForTests();
+
+            // A failed probe tries both su forms, and the negative
+            // result stands for the retry window without re-spawning.
+            check(!RootRunner.probe(), "probe fails when su never reports uid 0");
+            check(su.calls == 2, "failed probe tried both forms, got " + su.calls);
+            check(!RootRunner.probe(), "negative probe result stands inside the window");
+            check(su.calls == 2, "no re-probe inside the window, got " + su.calls);
+            ticker.now += RootRunner.NEGATIVE_RETRY_MS - 1;
+            check(!RootRunner.probe(), "negative probe result still stands just before the window ends");
+            check(su.calls == 2, "no re-probe just before the window ends, got " + su.calls);
+
+            // After the window the probe retries; a success is then
+            // cached, and later probes spawn nothing.
+            ticker.now += 1;
+            su.result = new Result(0, false, false, "uid=0(root) gid=0(root)", null);
+            check(RootRunner.probe(), "probe retries after the window and finds root");
+            check(su.calls == 3, "retry after the window tried the first working form only, got " + su.calls);
+            check(RootRunner.probe(), "cached working form reports root available");
+            check(su.calls == 3, "cached working form spawns no new probe, got " + su.calls);
+
+            // A root execution that fails at the spawn level drops
+            // the cached form, so the next probe runs again.
+            su.result = Result.failure("Root is unavailable: su could not be started");
+            Result spawnFailure = RootRunner.run(Arrays.asList("/system/bin/id"), 5);
+            check(!spawnFailure.succeeded(), "spawn-level root failure is returned as a failure");
+            su.result = new Result(0, false, false, "uid=0(root) gid=0(root)", null);
+            check(RootRunner.probe(), "probe runs again after a spawn-level execution failure");
+            check(su.calls == 5, "execution failure dropped the cached form, got " + su.calls);
+
+            // A command that runs and merely exits nonzero keeps the
+            // cached form: the form works, the command failed.
+            su.result = new Result(1, false, false, "permission denied", null);
+            Result exitFailure = RootRunner.run(Arrays.asList("/system/bin/id"), 5);
+            check(!exitFailure.succeeded() && exitFailure.exitCode == 1, "nonzero exit is returned as-is");
+            check(RootRunner.probe(), "cached form survives a nonzero command exit");
+            check(su.calls == 6, "nonzero exit did not drop the cached form, got " + su.calls);
+        } finally {
+            RootRunner.setCommandRunnerForTests(null);
+            RootRunner.setTickerForTests(null);
+            RootRunner.resetCacheForTests();
+        }
     }
 
     private static void pidTests() {
@@ -174,10 +240,8 @@ public final class TaskSchedulerTest {
                 "run toggle does not change task hash");
 
         // The pre-1.4 stored value "Default" is not a schedule or a
-        // backend any more: parsed on its own (no migration) it falls
-        // back like any other unknown value. LegacyMigration resolves
-        // real stored rows against the old plugin-level values before
-        // parsing; see migrationTests.
+        // backend any more: parsed on its own it falls back like any
+        // other unknown value.
         Map<String, Object> defaultRow = new HashMap<String, Object>();
         defaultRow.put("executable", "/system/bin/id");
         defaultRow.put("schedule", "Default");
@@ -333,104 +397,6 @@ public final class TaskSchedulerTest {
                 && fallCal.get(Calendar.MINUTE) == 30 && NEW_YORK.getOffset(fallDue) == -5L * 3600L * 1000L,
                 "fall-back daily picks the standard-time 01:30 (EST), got " + fallCal.getTime());
     }
-    private static Map<String, Object> legacyRow(String schedule, String backend) {
-        Map<String, Object> row = new HashMap<String, Object>();
-        row.put("label", "Legacy");
-        row.put("executable", "/system/bin/id");
-        row.put("args", "");
-        if (schedule != null) row.put("schedule", schedule);
-        if (backend != null) row.put("backend", backend);
-        return row;
-    }
-
-    private static void migrationTests() {
-        // A full 1.3 install: all three plugin-level settings present,
-        // rows storing Default, no per-task delay anywhere.
-        Map<String, Object> settings = new HashMap<String, Object>();
-        settings.put("defaultSchedule", "On Kiosk start");
-        settings.put("defaultBackend", "Shizuku");
-        settings.put("startupDelaySeconds", Double.valueOf(30.0));
-        Map<String, Object> defaulted = legacyRow("Default", "Default");
-        Map<String, Object> interval = legacyRow("Interval", "Root");
-        interval.put("intervalMinutes", Integer.valueOf(60));
-        Map<String, Object> boot = legacyRow("On boot", "Auto");
-        settings.put("tasks", Arrays.asList(defaulted, interval, boot));
-        LegacyMigration.Result result = LegacyMigration.resolveRows(settings);
-        check(result.changed, "legacy settings are flagged for write-back");
-        check(result.rows.size() == 3, "migration keeps every row");
-        TaskSpec resolvedDefault = TaskSpec.fromRow(result.rows.get(0));
-        check(resolvedDefault.schedule.equals(Schedule.ON_START), "Default schedule takes the old defaultSchedule");
-        check(resolvedDefault.backend.equals("Shizuku"), "Default backend takes the old defaultBackend");
-        check(resolvedDefault.delaySeconds == 30, "On Kiosk start row takes the old startup delay");
-        TaskSpec resolvedInterval = TaskSpec.fromRow(result.rows.get(1));
-        check(resolvedInterval.schedule.equals(Schedule.INTERVAL) && resolvedInterval.backend.equals("Root"),
-                "explicit schedule and backend pass through");
-        check(resolvedInterval.delaySeconds == 0, "scheduled rows get no startup delay");
-        check(TaskSpec.fromRow(result.rows.get(2)).delaySeconds == 30, "On boot row takes the old startup delay");
-        check(!defaulted.containsKey("delaySeconds") && "Default".equals(defaulted.get("schedule")),
-                "migration does not mutate the stored rows");
-
-        // Loop safety: resolving the migrated rows again — even with
-        // the old plugin-level keys still in the map — changes nothing.
-        Map<String, Object> again = new HashMap<String, Object>(settings);
-        again.put("tasks", result.rows);
-        check(!LegacyMigration.resolveRows(again).changed, "migrated rows do not migrate twice");
-        Map<String, Object> stripped = new HashMap<String, Object>();
-        stripped.put("tasks", result.rows);
-        check(!LegacyMigration.resolveRows(stripped).changed, "migrated rows without legacy keys stay put");
-
-        // Garbage plugin-level values fall back: On boot / Auto / 0.
-        Map<String, Object> garbage = new HashMap<String, Object>();
-        garbage.put("defaultSchedule", "Hourly");
-        garbage.put("defaultBackend", "Nope");
-        garbage.put("startupDelaySeconds", "abc");
-        garbage.put("tasks", Arrays.asList(legacyRow("Default", "Default")));
-        TaskSpec garbageSpec = TaskSpec.fromRow(LegacyMigration.resolveRows(garbage).rows.get(0));
-        check(garbageSpec.schedule.equals(Schedule.ON_BOOT), "garbage defaultSchedule falls back to On boot");
-        check(garbageSpec.backend.equals("Auto"), "garbage defaultBackend falls back to Auto");
-        check(garbageSpec.delaySeconds == 0, "garbage startup delay falls back to 0");
-
-        // The old startup delay is clamped to the per-task delay range.
-        Map<String, Object> bigDelay = new HashMap<String, Object>();
-        bigDelay.put("startupDelaySeconds", Double.valueOf(9999.0));
-        bigDelay.put("tasks", Arrays.asList(legacyRow("On boot", "Auto")));
-        check(TaskSpec.fromRow(LegacyMigration.resolveRows(bigDelay).rows.get(0)).delaySeconds
-                == TaskSpec.MAX_DELAY_SECONDS, "startup delay clamped to 300 on migration");
-        Map<String, Object> negativeDelay = new HashMap<String, Object>();
-        negativeDelay.put("startupDelaySeconds", Integer.valueOf(-5));
-        negativeDelay.put("tasks", Arrays.asList(legacyRow("On boot", "Auto")));
-        check(TaskSpec.fromRow(LegacyMigration.resolveRows(negativeDelay).rows.get(0)).delaySeconds == 0,
-                "negative startup delay becomes 0 on migration");
-
-        // No plugin-level keys at all (Kiosk Satellite dropped them):
-        // the row markers alone trigger migration, with fallbacks.
-        Map<String, Object> markersOnly = new HashMap<String, Object>();
-        markersOnly.put("tasks", Arrays.asList(legacyRow("Default", "Default")));
-        LegacyMigration.Result markersResult = LegacyMigration.resolveRows(markersOnly);
-        check(markersResult.changed, "row markers alone trigger migration");
-        TaskSpec markersSpec = TaskSpec.fromRow(markersResult.rows.get(0));
-        check(markersSpec.schedule.equals(Schedule.ON_BOOT) && markersSpec.backend.equals("Auto")
-                && markersSpec.delaySeconds == 0, "markers-only migration uses the fallbacks");
-
-        // A resolved schedule decides the delay even when it comes
-        // from the old default: Default -> Daily means no startup delay.
-        Map<String, Object> dailyDefault = new HashMap<String, Object>();
-        dailyDefault.put("defaultSchedule", "Daily");
-        dailyDefault.put("startupDelaySeconds", Integer.valueOf(25));
-        dailyDefault.put("tasks", Arrays.asList(legacyRow("Default", "Auto")));
-        TaskSpec dailySpec = TaskSpec.fromRow(LegacyMigration.resolveRows(dailyDefault).rows.get(0));
-        check(dailySpec.schedule.equals(Schedule.DAILY) && dailySpec.delaySeconds == 0,
-                "Default resolving to Daily gets no startup delay");
-
-        // Current settings (no legacy keys, no Default rows) are not
-        // touched — in particular a missing delaySeconds alone does
-        // not trigger a write-back.
-        Map<String, Object> current = new HashMap<String, Object>();
-        current.put("tasks", Arrays.asList(legacyRow("Weekly", "Root")));
-        LegacyMigration.Result currentResult = LegacyMigration.resolveRows(current);
-        check(!currentResult.changed, "current settings are not migrated");
-        check(!currentResult.rows.get(0).containsKey("delaySeconds"), "no delay is injected without legacy markers");
-    }
 
     private static void configTests() {
         // Logging level parsing: only the exact "Verbose" option is
@@ -447,6 +413,26 @@ public final class TaskSchedulerTest {
         settings.put("loggingLevel", "");
         check(!TaskSchedulerPlugin.Config.parse(settings).verbose, "empty logging level coerces to Informational");
         check(!TaskSchedulerPlugin.Config.empty().verbose, "empty config is Informational");
+
+        // Task rows load straight from the stored list: rows with an
+        // executable parse, rows without one are dropped, and
+        // non-map entries are ignored.
+        Map<String, Object> rowA = new HashMap<String, Object>();
+        rowA.put("label", "A");
+        rowA.put("executable", "/system/bin/id");
+        Map<String, Object> rowB = new HashMap<String, Object>();
+        rowB.put("label", "No executable");
+        Map<String, Object> withRows = new HashMap<String, Object>();
+        List<Object> stored = new ArrayList<Object>();
+        stored.add(rowA);
+        stored.add(rowB);
+        stored.add("not a row");
+        withRows.put("tasks", stored);
+        TaskSchedulerPlugin.Config parsed = TaskSchedulerPlugin.Config.parse(withRows);
+        check(parsed.tasks.size() == 1, "config keeps only executable rows, got " + parsed.tasks.size());
+        check("A".equals(parsed.tasks.get(0).label), "config parses the stored row");
+        check(TaskSchedulerPlugin.Config.parse(new HashMap<String, Object>()).tasks.isEmpty(),
+                "missing tasks setting parses as no tasks");
     }
 
     /** Records log lines; every other host method keeps its interface default. */

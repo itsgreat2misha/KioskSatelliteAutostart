@@ -8,9 +8,9 @@ in Java for Android; the build is driven by Python scripts in
 
 - Run the tests with `python3 tools/test.py` and make sure the full
   build compiles: `python3 tools/build.py --android-platform 35`
-- CI runs the tests and a build check (`Build and test`) on every
-  push and pull request; release builds are built by GitHub Actions
-  from a version tag.
+- CI runs the tests and a build check (`Build and test`) on pushes
+  to `main` and on pull requests; release builds are built by
+  GitHub Actions from a version tag.
 
 ## Compatibility rules
 
@@ -22,7 +22,7 @@ migration story in the PR:
   IDs, and sensor IDs declared in it.
 - Command behaviour: the backend options (`Auto`, `Root`,
   `Shizuku`), the schedules (`On boot`, `On Kiosk start`, `Interval`, `Daily`, `Weekly`, `Manual`), and
-  the per-command timeout range (1–30 seconds).
+  the per-task timeout range (1–30 seconds).
 - The plugin `version` in `kiosk-satellite-plugin.json` = git tag =
   release name; it only ever moves forward.
 

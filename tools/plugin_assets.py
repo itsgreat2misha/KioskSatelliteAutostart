@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """Collect safe package assets. Paths mirror the SDK package validator."""
 import re
 from pathlib import Path

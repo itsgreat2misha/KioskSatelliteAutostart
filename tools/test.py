@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
 """Compile the Task Scheduler plugin against the SDK and run its unit tests."""
 import os
 import subprocess
@@ -40,3 +41,4 @@ with tempfile.TemporaryDirectory(prefix="ks-task-scheduler-test-") as directory:
 
 subprocess.run([sys.executable, str(root / "tools/test_plugin_manifest.py")], check=True)
 subprocess.run([sys.executable, str(root / "tools/test_plugin_assets.py")], check=True)
+subprocess.run([sys.executable, str(root / "tools/test_android_sdk.py")], check=True)
