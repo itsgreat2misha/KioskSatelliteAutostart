@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The **Scheduler state** description now says a task's last
   *accounted* run (its last successful run, or a `Skip` resync),
   which is what the anchor records.
-- Documentation corrected and completed after a full audit: the
+- Documentation corrected and completed: the
   examples no longer present `pm clear` as clearing an app's
   cache (it wipes app data); editing a task's executable or
   arguments is documented as starting its schedule fresh, like a
